@@ -54,43 +54,43 @@
 /* VirtIO ring descriptors: 16 bytes.
  * These can chain together via "next". */
 struct vring_desc {
-        /* Address (guest-physical). */
-        uint64_t addr;
-        /* Length. */
-        uint32_t len;
-        /* The flags as indicated above. */
-        uint16_t flags;
-        /* We chain unused descriptors via this, too. */
-        uint16_t next;
+	/* Address (guest-physical). */
+	uint64_t addr;
+	/* Length. */
+	uint32_t len;
+	/* The flags as indicated above. */
+	uint16_t flags;
+	/* We chain unused descriptors via this, too. */
+	uint16_t next;
 };
 
-struct vring_avail {
-        uint16_t flags;
-        uint16_t idx;
-        uint16_t ring[0];
-};
+typedef struct vring_avail {
+	uint16_t flags;
+	uint16_t idx;
+	uint16_t ring[0];
+} vring_avail_t;
 
 /* uint32_t is used here for ids for padding reasons. */
-struct vring_used_elem {
-        /* Index of start of used descriptor chain. */
-        uint32_t id;
-        /* Total length of the descriptor chain which was written to. */
-        uint32_t len;
-};
+typedef struct vring_used_elem {
+	/* Index of start of used descriptor chain. */
+	uint32_t id;
+	/* Total length of the descriptor chain which was written to. */
+	uint32_t len;
+} vring_used_elem_t;
 
-struct vring_used {
-        uint16_t flags;
-        uint16_t idx;
-        struct vring_used_elem ring[0];
-};
+typedef struct vring_used {
+	uint16_t flags;
+	uint16_t idx;
+	struct vring_used_elem ring[0];
+} vring_used_t;
 
-struct vring {
+typedef struct vring {
 	unsigned int num;
 
 	struct vring_desc *desc;
 	struct vring_avail *avail;
 	struct vring_used *used;
-};
+} vring_t;
 
 /* Alignment requirements for vring elements.
  * When using pre-virtio 1.0 layout, these fall out naturally.
@@ -129,18 +129,22 @@ struct vring {
  * We publish the used event index at the end of the available ring, and vice
  * versa. They are at the end for backwards compatibility.
  */
+
+/* disable strict aliasing for now */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #define vring_used_event(vr)	((vr)->avail->ring[(vr)->num])
 #define vring_avail_event(vr)	(*(uint16_t *)&(vr)->used->ring[(vr)->num])
+#pragma GCC diagnostic pop
 
 static inline int
-vring_size(unsigned int num, unsigned long align)
+vring_size(unsigned int num)
 {
 	int size;
 
 	size = num * sizeof(struct vring_desc);
 	size += sizeof(struct vring_avail) + (num * sizeof(uint16_t)) +
 	    sizeof(uint16_t);
-	size = (size + align - 1) & ~(align - 1);
 	size += sizeof(struct vring_used) +
 	    (num * sizeof(struct vring_used_elem)) + sizeof(uint16_t);
 	return (size);
@@ -148,13 +152,13 @@ vring_size(unsigned int num, unsigned long align)
 
 static inline void
 vring_init(struct vring *vr, unsigned int num, uint8_t *p,
-    unsigned long align)
+		unsigned long align)
 {
-        vr->num = num;
-        vr->desc = (struct vring_desc *) p;
-        vr->avail = (struct vring_avail *) (p +
+	vr->num = num;
+	vr->desc = (struct vring_desc *) p;
+	vr->avail = (struct vring_avail *) (p +
 	    num * sizeof(struct vring_desc));
-        vr->used = (void *)
+	vr->used = (vring_used_t *)
 	    (((unsigned long) &vr->avail->ring[num] + align-1) & ~(align-1));
 }
 

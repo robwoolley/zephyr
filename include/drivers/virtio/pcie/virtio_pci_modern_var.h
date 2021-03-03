@@ -38,7 +38,7 @@
 #ifndef _VIRTIO_PCI_MODERN_VAR_H
 #define _VIRTIO_PCI_MODERN_VAR_H
 
-#include <dev/virtio/pci/virtio_pci_var.h>
+#include <drivers/virtio/pcie/virtio_pci_var.h>
 
 /* IDs for different capabilities.  Must all exist. */
 /* Common configuration */

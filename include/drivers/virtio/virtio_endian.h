@@ -28,10 +28,12 @@
  * $FreeBSD$
  */
 
+/* Copyright (c) 2021, Wind River Systems, Inc.*/
+
 #ifndef _VIRTIO_ENDIAN_H_
 #define _VIRTIO_ENDIAN_H_
 
-#include <sys/endian.h>
+#include <sys/byteorder.h>
 
 /*
  * VirtIO V1 (modern) uses little endian, while legacy VirtIO uses the guest's
@@ -42,7 +44,7 @@
 static inline bool
 virtio_swap_endian(bool modern)
 {
-#if _BYTE_ORDER == _LITTLE_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 	return (false);
 #else
 	return (modern);
@@ -53,7 +55,7 @@ static inline uint16_t
 virtio_htog16(bool modern, uint16_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (le16toh(val));
+		return (sys_le16_to_cpu(val));
 	else
 		return (val);
 }
@@ -62,7 +64,7 @@ static inline uint16_t
 virtio_gtoh16(bool modern, uint16_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (htole16(val));
+		return (sys_cpu_to_le16(val));
 	else
 		return (val);
 }
@@ -71,7 +73,7 @@ static inline uint32_t
 virtio_htog32(bool modern, uint32_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (le32toh(val));
+		return (sys_le32_to_cpu(val));
 	else
 		return (val);
 }
@@ -80,7 +82,7 @@ static inline uint32_t
 virtio_gtoh32(bool modern, uint32_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (htole32(val));
+		return (sys_cpu_to_le32(val));
 	else
 		return (val);
 }
@@ -89,7 +91,7 @@ static inline uint64_t
 virtio_htog64(bool modern, uint64_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (le64toh(val));
+		return (sys_le64_to_cpu(val));
 	else
 		return (val);
 }
@@ -98,7 +100,7 @@ static inline uint64_t
 virtio_gtoh64(bool modern, uint64_t val)
 {
 	if (virtio_swap_endian(modern))
-		return (htole64(val));
+		return (sys_cpu_to_le64(val));
 	else
 		return (val);
 }

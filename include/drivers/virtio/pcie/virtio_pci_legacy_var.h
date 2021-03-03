@@ -38,7 +38,7 @@
 #ifndef _VIRTIO_PCI_LEGACY_VAR_H
 #define _VIRTIO_PCI_LEGACY_VAR_H
 
-#include <dev/virtio/pci/virtio_pci_var.h>
+#include <drivers/virtio/pcie/virtio_pci_var.h>
 
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION	0
