@@ -224,6 +224,41 @@ int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
 	return vector;
 }
 
+int z_x86_allocate_vector(unsigned int priority, int prev)
+{
+	ARG_UNUSED(prev);
+
+	uint32_t key = irq_lock();
+
+	int vector = priority_to_free_vector(priority);
+
+	irq_unlock(key);
+	return vector;
+}
+
+void z_x86_irq_connect_on_vector(unsigned int irq, uint8_t vector,
+			     void (*routine)(const void *parameter),
+			     const void *parameter, uint32_t flags)
+{
+	uint32_t key = irq_lock();
+
+	__ASSERT(_irq_to_interrupt_vector[irq] == 0U,
+		 "IRQ %d already configured", irq);
+	_irq_to_interrupt_vector[irq] = vector;
+	z_irq_controller_irq_config(vector, irq, flags);
+
+	int stub_idx = next_irq_stub++;
+
+	__ASSERT(stub_idx < CONFIG_X86_DYNAMIC_IRQ_STUBS,
+		 "No available interrupt stubs found");
+
+	dyn_irq_list[stub_idx].handler = routine;
+	dyn_irq_list[stub_idx].param = parameter;
+	idt_vector_install(vector, get_dynamic_stub(stub_idx));
+
+	irq_unlock(key);
+}
+
 /**
  * @brief Common dynamic IRQ handler function
  *
