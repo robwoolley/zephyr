@@ -113,7 +113,7 @@ void	 virtqueue_dump(struct virtqueue *vq);
 
 int	 virtqueue_enqueue(struct virtqueue *vq, void *cookie,
 	     sys_slist_t *readable, int readable_len,
-	     sys_slist_t *writeable, int writable_len);
+	     sys_slist_t *writable, int writable_len);
 void	*virtqueue_dequeue(struct virtqueue *vq, uint32_t *len);
 void	*virtqueue_poll(struct virtqueue *vq, uint32_t *len);
 
