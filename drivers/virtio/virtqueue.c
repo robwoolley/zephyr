@@ -50,7 +50,7 @@
 LOG_MODULE_DECLARE(virtio, CONFIG_VIRTIO_LOG_LEVEL);
 
 struct virtqueue {
-	virtio_device_t		*vq_dev;
+	virtio_device_t		 vq_dev;
 	uint16_t		 vq_queue_index;
 	uint16_t		 vq_nentries;
 	uint32_t		 vq_flags;
@@ -59,7 +59,7 @@ struct virtqueue {
 #define	VIRTQUEUE_FLAG_EVENT_IDX 0x0004
 
 	int			 vq_max_indirect_size;
-	unsigned long		 vq_notify_offset;
+	bus_size_t		 vq_notify_offset;
 	virtqueue_intr_t	*vq_intrhand;
 	void			*vq_intrhand_arg;
 
@@ -87,7 +87,7 @@ struct virtqueue {
 	struct vq_desc_extra {
 		void		  *cookie;
 		struct vring_desc *indirect;
-		uintptr_t	   indirect_paddr;
+		vm_paddr_t	   indirect_paddr;
 		uint16_t	   ndescs;
 	} vq_descx[0];
 };
@@ -160,16 +160,16 @@ static inline bool powerof2(uint64_t x)
 
 int
 virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
-    unsigned long notify_offset, int align, uintptr_t highaddr,
+    bus_size_t notify_offset, int align, vm_paddr_t highaddr,
     struct vq_alloc_info *info, struct virtqueue **vqp)
 {
-	virtio_bus_api_t *api = (virtio_bus_api_t *)dev.api;
-
 	struct virtqueue *vq;
 	int error;
 
 	*vqp = NULL;
 	error = 0;
+
+	virtio_bus_api_t *api = (virtio_bus_api_t *)dev.api;
 
 	/* If the device is x86 based with an MMU map the physical address
 	 * otherwise just use the physical address
@@ -203,7 +203,7 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 		goto fail;
 	}
 
-	vq->vq_dev = &dev;
+	vq->vq_dev = dev;
 	strncpy(vq->vq_name, info->vqai_name, sizeof(vq->vq_name));
 	vq->vq_queue_index = queue;
 	vq->vq_notify_offset = notify_offset;
@@ -255,15 +255,15 @@ fail:
 static int
 virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 {
-	virtio_device_t *dev;
-	vq_desc_extra_t *dxp;
+	virtio_device_t dev;
+	struct vq_desc_extra *dxp;
 	virtio_bus_api_t *api;
 	int i, size;
 
 	dev = vq->vq_dev;
-	api = (virtio_bus_api_t *)dev->api;
+	api = (virtio_bus_api_t *)dev.api;
 
-	if (!(api->with_feature(dev, VIRTIO_RING_F_INDIRECT_DESC))) {
+	if (!(api->with_feature(&dev, VIRTIO_RING_F_INDIRECT_DESC))) {
 		LOG_WRN("Virtqueue %d (%s) requested indirect descriptor but "
 			"not negotiated", vq->vq_queue_index, vq->vq_name);
 		return (0);
@@ -284,9 +284,7 @@ virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 			return (-ENOMEM);
 		}
 
-#if 0
-		dxp->indirect_paddr = vtophys(dxp->indirect);
-#endif /* 0 */
+		dxp->indirect_paddr = Z_MEM_PHYS_ADDR(dxp->indirect);
 		virtqueue_init_indirect_list(vq, dxp->indirect);
 	}
 
@@ -296,7 +294,7 @@ virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 static void
 virtqueue_free_indirect(struct virtqueue *vq)
 {
-	vq_desc_extra_t *dxp;
+	struct vq_desc_extra *dxp;
 	int i;
 
 	for (i = 0; i < vq->vq_max_indirect_size; ++i) {
@@ -330,7 +328,7 @@ virtqueue_init_indirect_list(struct virtqueue *vq,
 int
 virtqueue_reinit(struct virtqueue *vq, uint16_t size)
 {
-	vq_desc_extra_t *dxp;
+	struct vq_desc_extra *dxp;
 	int i;
 
 	if (vq->vq_nentries != size) {
@@ -391,7 +389,7 @@ virtqueue_free(struct virtqueue *vq)
 	k_heap_free(&VRING_MEM, vq);
 }
 
-uintptr_t
+vm_paddr_t
 virtqueue_paddr(struct virtqueue *vq)
 {
 	uint32_t offset = (uintptr_t)vq->vq_ring_mem -
@@ -399,7 +397,7 @@ virtqueue_paddr(struct virtqueue *vq)
 	return Z_VIRTIO_RAM_START + offset;
 }
 
-uintptr_t
+vm_paddr_t
 virtqueue_desc_paddr(struct virtqueue *vq)
 {
 	uint32_t offset = (uintptr_t)vq->vq_ring.desc -
@@ -407,7 +405,7 @@ virtqueue_desc_paddr(struct virtqueue *vq)
 	return Z_VIRTIO_RAM_START + offset;
 }
 
-uintptr_t
+vm_paddr_t
 virtqueue_avail_paddr(struct virtqueue *vq)
 {
 	uint32_t offset = (uintptr_t)vq->vq_ring.avail -
@@ -415,7 +413,7 @@ virtqueue_avail_paddr(struct virtqueue *vq)
 	return Z_VIRTIO_RAM_START + offset;
 }
 
-uintptr_t
+vm_paddr_t
 virtqueue_used_paddr(struct virtqueue *vq)
 {
 	uint32_t offset = (uintptr_t)vq->vq_ring.used -
@@ -843,18 +841,16 @@ vq_ring_enqueue_indirect(struct virtqueue *vq, void *cookie,
 {
 	struct vring_desc *dp;
 	struct vq_desc_extra *dxp;
+	int needed;
 	uint16_t head_idx;
 
-	int needed = readable_len + writable_len;
+	needed = readable_len + writable_len;
 
 	VQASSERT(vq, needed <= vq->vq_max_indirect_size,
 	    "enqueuing too many indirect descriptors");
 
 	head_idx = vq->vq_desc_head_idx;
-
-	VQASSERT(vq, head_idx < vq->vq_nentries, "Virtqueue %d(%s): desc out of range",
-			vq->vq_queue_index, vq->vq_name);
-
+	VQ_RING_ASSERT_VALID_IDX(vq, head_idx);
 	dp = &vq->vq_ring.desc[head_idx];
 	dxp = &vq->vq_descx[head_idx];
 
@@ -946,10 +942,10 @@ vq_ring_must_notify_host(struct virtqueue *vq)
 static void
 vq_ring_notify_host(struct virtqueue *vq)
 {
-	virtio_bus_api_t *api = (virtio_bus_api_t *)vq->vq_dev->api;
+	virtio_bus_api_t *api = (virtio_bus_api_t *)vq->vq_dev.api;
 
 	api->notify_virtqueue(
-		vq->vq_dev, vq->vq_queue_index, vq->vq_notify_offset
+		&vq->vq_dev, vq->vq_queue_index, vq->vq_notify_offset
 	);
 }
 

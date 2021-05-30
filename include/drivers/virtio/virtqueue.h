@@ -33,16 +33,22 @@
 #pragma once
 
 #include <zephyr.h>
+#include <zephyr/types.h>
 #include <drivers/virtio/virtio_ring.h>
 #include <drivers/virtio/virtio.h>
 
 struct virtqueue;
+
+typedef ulong_t bus_size_t;
+typedef mem_addr_t vm_paddr_t;
 
 /* Device callback for a virtqueue interrupt. */
 typedef void virtqueue_intr_t(void *);
 struct __virtio_device__;
 typedef struct __virtio_device__ virtio_device_t;
 
+typedef struct vq_desc_extra vq_desc_extra_t;
+#define virtqueue_modern(virtqueue) (((virtqueue)->flags & VIRTQUEUE_MODERN) != 0)
 #define VIRTQUEUE_MODERN 0x1
 #define VIRTQUEUE_INDIRECT 0x2
 #define VIRTQUEUE_EVENT_IDX 0x4
@@ -75,16 +81,8 @@ struct vq_alloc_info {
 	(_i)->vqai_vq = (_vqp);						\
 } while (0)
 
-
-
-typedef struct vq_desc_extra vq_desc_extra_t;
-
-
-#define virtqueue_modern(virtqueue) (((virtqueue)->flags & VIRTQUEUE_MODERN)\
-									 != 0)
-
 int	 virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
-	     unsigned long notify_offset, int align, uintptr_t highaddr,
+	     bus_size_t notify_offset, int align, vm_paddr_t highaddr,
 	     struct vq_alloc_info *info, struct virtqueue **vqp);
 void	*virtqueue_drain(struct virtqueue *vq, int *last);
 void	 virtqueue_free(struct virtqueue *vq);
@@ -97,10 +95,10 @@ int	 virtqueue_postpone_intr(struct virtqueue *vq, vq_postpone_t hint);
 void	 virtqueue_disable_intr(struct virtqueue *vq);
 
 /* Get physical address of the virtqueue ring. */
-uintptr_t virtqueue_paddr(struct virtqueue *vq);
-uintptr_t virtqueue_desc_paddr(struct virtqueue *vq);
-uintptr_t virtqueue_avail_paddr(struct virtqueue *vq);
-uintptr_t virtqueue_used_paddr(struct virtqueue *vq);
+vm_paddr_t virtqueue_paddr(struct virtqueue *vq);
+vm_paddr_t virtqueue_desc_paddr(struct virtqueue *vq);
+vm_paddr_t virtqueue_avail_paddr(struct virtqueue *vq);
+vm_paddr_t virtqueue_used_paddr(struct virtqueue *vq);
 
 uint16_t virtqueue_index(struct virtqueue *vq);
 int	 virtqueue_full(struct virtqueue *vq);
