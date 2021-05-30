@@ -30,13 +30,22 @@
 
 #ifndef _VIRTIO_VIRTQUEUE_H
 #define _VIRTIO_VIRTQUEUE_H
+#pragma once
+
+#include <zephyr.h>
+#include <drivers/virtio/virtio_ring.h>
+#include <drivers/virtio/virtio.h>
 
 struct virtqueue;
-struct sglist;
 
 /* Device callback for a virtqueue interrupt. */
 typedef void virtqueue_intr_t(void *);
+struct __virtio_device__;
+typedef struct __virtio_device__ virtio_device_t;
 
+#define VIRTQUEUE_MODERN 0x1
+#define VIRTQUEUE_INDIRECT 0x2
+#define VIRTQUEUE_EVENT_IDX 0x4
 /*
  * Hint on how long the next interrupt should be postponed. This is
  * only used when the EVENT_IDX feature is negotiated.
@@ -59,16 +68,23 @@ struct vq_alloc_info {
 };
 
 #define VQ_ALLOC_INFO_INIT(_i,_nsegs,_intr,_arg,_vqp,_str,...) do {	\
-	snprintf((_i)->vqai_name, VIRTQUEUE_MAX_NAME_SZ, _str,		\
-	    ##__VA_ARGS__);						\
+	strncpy((_i)->vqai_name, _str, VIRTQUEUE_MAX_NAME_SZ);		\
 	(_i)->vqai_maxindirsz = (_nsegs);				\
 	(_i)->vqai_intr = (_intr);					\
 	(_i)->vqai_intr_arg = (_arg);					\
 	(_i)->vqai_vq = (_vqp);						\
 } while (0)
 
-int	 virtqueue_alloc(device_t dev, uint16_t queue, uint16_t size,
-	     bus_size_t notify_offset, int align, vm_paddr_t highaddr,
+
+
+typedef struct vq_desc_extra vq_desc_extra_t;
+
+
+#define virtqueue_modern(virtqueue) (((virtqueue)->flags & VIRTQUEUE_MODERN)\
+									 != 0)
+
+int	 virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
+	     unsigned long notify_offset, int align, uintptr_t highaddr,
 	     struct vq_alloc_info *info, struct virtqueue **vqp);
 void	*virtqueue_drain(struct virtqueue *vq, int *last);
 void	 virtqueue_free(struct virtqueue *vq);
@@ -81,10 +97,10 @@ int	 virtqueue_postpone_intr(struct virtqueue *vq, vq_postpone_t hint);
 void	 virtqueue_disable_intr(struct virtqueue *vq);
 
 /* Get physical address of the virtqueue ring. */
-vm_paddr_t virtqueue_paddr(struct virtqueue *vq);
-vm_paddr_t virtqueue_desc_paddr(struct virtqueue *vq);
-vm_paddr_t virtqueue_avail_paddr(struct virtqueue *vq);
-vm_paddr_t virtqueue_used_paddr(struct virtqueue *vq);
+uintptr_t virtqueue_paddr(struct virtqueue *vq);
+uintptr_t virtqueue_desc_paddr(struct virtqueue *vq);
+uintptr_t virtqueue_avail_paddr(struct virtqueue *vq);
+uintptr_t virtqueue_used_paddr(struct virtqueue *vq);
 
 uint16_t virtqueue_index(struct virtqueue *vq);
 int	 virtqueue_full(struct virtqueue *vq);
@@ -96,7 +112,8 @@ void	 virtqueue_notify(struct virtqueue *vq);
 void	 virtqueue_dump(struct virtqueue *vq);
 
 int	 virtqueue_enqueue(struct virtqueue *vq, void *cookie,
-	     struct sglist *sg, int readable, int writable);
+	     sys_slist_t *readable, int readable_len,
+	     sys_slist_t *writeable, int writable_len);
 void	*virtqueue_dequeue(struct virtqueue *vq, uint32_t *len);
 void	*virtqueue_poll(struct virtqueue *vq, uint32_t *len);
 
