@@ -101,8 +101,10 @@ struct virtqueue {
 #define VQ_RING_DESC_CHAIN_END 32768
 
 #define VQASSERT(_vq, _exp, _msg, ...)				\
+    do {                                                        \
     __ASSERT((_exp),("%s: %s - "_msg, __func__, (_vq)->vq_name,	\
-	##__VA_ARGS__))
+	##__VA_ARGS__))                                         \
+    } while (false)
 
 #define VQ_RING_ASSERT_VALID_IDX(_vq, _idx)			\
     VQASSERT((_vq), (_idx) < (_vq)->vq_nentries,		\
@@ -605,11 +607,10 @@ virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
 
 	vq->vq_desc_head_idx = idx;
 	vq->vq_free_cnt -= needed;
-	if (vq->vq_free_cnt == 0) {
+	if (vq->vq_free_cnt == 0)
 		VQ_RING_ASSERT_CHAIN_TERM(vq);
-	} else {
+	else
 		VQ_RING_ASSERT_VALID_IDX(vq, idx);
-	}
 
 	vq_ring_update_avail(vq, head_idx);
 
@@ -877,11 +878,10 @@ vq_ring_enqueue_indirect(struct virtqueue *vq, void *cookie,
 
 	vq->vq_desc_head_idx = vq_htog16(vq, dp->next);
 	vq->vq_free_cnt--;
-	if (vq->vq_free_cnt == 0) {
+	if (vq->vq_free_cnt == 0)
 		VQ_RING_ASSERT_CHAIN_TERM(vq);
-	} else {
+	else
 		VQ_RING_ASSERT_VALID_IDX(vq, vq->vq_desc_head_idx);
-	}
 
 	vq_ring_update_avail(vq, head_idx);
 }
