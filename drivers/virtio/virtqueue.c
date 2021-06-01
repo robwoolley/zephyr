@@ -154,12 +154,6 @@ static void	vq_ring_free_chain(struct virtqueue *, uint16_t);
 
 struct k_heap VRING_MEM;
 static uint8_t *VRING_MEM_BASE;
-
-static inline bool powerof2(uint64_t x)
-{
-	return ((x & (x - 1)) == 0);
-}
-
 int
 virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
     bus_size_t notify_offset, int align, vm_paddr_t highaddr,
@@ -189,7 +183,7 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 		LOG_INF("Virtqueue %d (%s) size is zero", queue,
 						info->vqai_name);
 		return -ENODEV;
-	} else if (!powerof2(size)) {
+	} else if (!is_power_of_two(size)) {
 		LOG_INF("Virtqueue %d (%s) size is not a power of 2: %d",
 			queue, info->vqai_name, size);
 		return -ENXIO;
