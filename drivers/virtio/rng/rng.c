@@ -31,8 +31,6 @@
 
 LOG_MODULE_REGISTER(virtio_rng, CONFIG_VIRTIO_RNG_LOG_LEVEL);
 
-static sys_slist_t rng_gen_sg;
-
 static int virtio_rng_allocate_virtqueues(virtio_rng_dev_t *dev)
 {
 	struct vq_alloc_info vq_info;
@@ -77,8 +75,6 @@ int virtio_rng_init(virtio_rng_dev_t *dev, virtio_bus_type_t type, void *dat)
 		return error;
 	}
 
-	sys_slist_init(&rng_gen_sg);
-
 	dev->rng_read = virtio_rng_read_data;
 
 	return 0;
@@ -86,29 +82,29 @@ int virtio_rng_init(virtio_rng_dev_t *dev, virtio_bus_type_t type, void *dat)
 
 int virtio_rng_read_data(virtio_rng_dev_t *dev, void *out, size_t *len)
 {
-	virtio_data_t data;
+	struct sglist_seg segs[1];
+	struct sglist sg;
+	int error;
+	void * cookie;
 
-	data.addr = out;
-	data.size = *len;
-	sys_slist_append(&rng_gen_sg, &data.next);
+	sglist_init(&sg, 1, segs);
 
-	int error = virtqueue_enqueue(dev->rng_vq, out, NULL, 0, &rng_gen_sg, 1);
+	error = sglist_append(&sg, out, *len);
+	__ASSERT(error == 0,
+		("%s: error %d adding buffer to sglist", __func__, error));
 
+	error = virtqueue_enqueue(dev->rng_vq, out, &sg, 0, 1);
 	if (error) {
 		LOG_ERR("Failed to queue the rng virtqueue");
-		goto fail;
+		return (error);
 	}
 
 	virtqueue_notify(dev->rng_vq);
-	void *cookie = virtqueue_poll(dev->rng_vq, (uint32_t *)len);
 
+	cookie = virtqueue_poll(dev->rng_vq, (uint32_t *)len);
 	if (cookie != out) {
 		LOG_WRN("Virtqueue poll received invalid cookie");
 	}
 
-
-fail:
-	sys_slist_remove(&rng_gen_sg, NULL, &data.next);
-
-	return error;
+	return 0;
 }

@@ -34,6 +34,8 @@
 
 #include <zephyr.h>
 #include <zephyr/types.h>
+#include <drivers/virtio/types.h>
+#include <drivers/virtio/sglist.h>
 #include <drivers/virtio/virtio_ring.h>
 #include <drivers/virtio/virtio.h>
 
@@ -41,6 +43,10 @@ struct virtqueue;
 
 typedef ulong_t bus_size_t;
 typedef mem_addr_t vm_paddr_t;
+
+#define     PAGE_MASK		(CONFIG_MMU_PAGE_SIZE - 1)
+#define     round_page(x)       (((unsigned long)(x) + PAGE_MASK) & ~PAGE_MASK)
+#define     trunc_page(x)       ((unsigned long)(x) & ~PAGE_MASK)
 
 /* Device callback for a virtqueue interrupt. */
 typedef void virtqueue_intr_t(void *);
@@ -74,7 +80,7 @@ struct vq_alloc_info {
 };
 
 #define VQ_ALLOC_INFO_INIT(_i,_nsegs,_intr,_arg,_vqp,_str,...) do {	\
-	strncpy((_i)->vqai_name, _str, VIRTQUEUE_MAX_NAME_SZ);		\
+	strncpy((_i)->vqai_name, _str, VIRTQUEUE_MAX_NAME_SZ);          \
 	(_i)->vqai_maxindirsz = (_nsegs);				\
 	(_i)->vqai_intr = (_intr);					\
 	(_i)->vqai_intr_arg = (_arg);					\
@@ -110,8 +116,7 @@ void	 virtqueue_notify(struct virtqueue *vq);
 void	 virtqueue_dump(struct virtqueue *vq);
 
 int	 virtqueue_enqueue(struct virtqueue *vq, void *cookie,
-	     sys_slist_t *readable, int readable_len,
-	     sys_slist_t *writable, int writable_len);
+	     struct sglist *sg, int readable, int writable);
 void	*virtqueue_dequeue(struct virtqueue *vq, uint32_t *len);
 void	*virtqueue_poll(struct virtqueue *vq, uint32_t *len);
 

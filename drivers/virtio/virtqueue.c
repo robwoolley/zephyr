@@ -26,19 +26,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Copyright (c) 2021, Wind River Systems, Inc.*/
-
-
-
 /*
  * Implements the virtqueue interface as basically described
  * in the original VirtIO paper.
  */
 
 #include <drivers/virtio/virtqueue.h>
-#include <drivers/virtio/virtio_config.h>
-#include <sys/__assert.h>
-#include <string.h>
 
 #ifdef CONFIG_X86
 #include <x86_mmu.h>
@@ -123,11 +116,11 @@ static void	virtqueue_init_indirect_list(struct virtqueue *,
 
 static void	vq_ring_init(struct virtqueue *);
 static void	vq_ring_update_avail(struct virtqueue *, uint16_t);
-static uint16_t	vq_ring_enqueue(struct virtqueue *,
-			struct vring_desc *, uint16_t, sys_slist_t *, int, sys_slist_t *, int);
+static uint16_t	vq_ring_enqueue_segments(struct virtqueue *,
+		    struct vring_desc *, uint16_t, struct sglist *, int, int);
 static int	vq_ring_use_indirect(struct virtqueue *, int);
 static void	vq_ring_enqueue_indirect(struct virtqueue *, void *,
-			sys_slist_t *, int, sys_slist_t *, int);
+		    struct sglist *, int, int);
 static int	vq_ring_enable_interrupt(struct virtqueue *, uint16_t);
 static int	vq_ring_must_notify_host(struct virtqueue *);
 static void	vq_ring_notify_host(struct virtqueue *);
@@ -209,13 +202,10 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 	vq->vq_intrhand = info->vqai_intr;
 	vq->vq_intrhand_arg = info->vqai_intr_arg;
 
-	if (api->with_feature(&dev, VIRTIO_F_VERSION_1)) {
+	if (api->with_feature(&dev, VIRTIO_F_VERSION_1))
 		vq->vq_flags |= VIRTQUEUE_FLAG_MODERN;
-	}
-
-	if (api->with_feature(&dev, VIRTIO_RING_F_EVENT_IDX)) {
+	if (api->with_feature(&dev, VIRTIO_RING_F_EVENT_IDX))
 		vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
-	}
 
 	if (info->vqai_maxindirsz > 1) {
 		error = virtqueue_init_indirect(vq, info->vqai_maxindirsz);
@@ -223,15 +213,13 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 			goto fail;
 	}
 
-#define     PAGE_MASK		(CONFIG_MMU_PAGE_SIZE - 1)
-#define     round_page(x)           (((unsigned long)(x) + PAGE_MASK) & ~PAGE_MASK)
 	vq->vq_ring_size = round_page(vring_size(size, align));
 	vq->vq_ring_mem = k_heap_aligned_alloc(&VRING_MEM, align,
-						vq->vq_ring_size, K_FOREVER);
+		vq->vq_ring_size, K_FOREVER);
 
 	if (vq->vq_ring_mem == NULL) {
 		LOG_ERR("Virtqueue %d(%s) cannot allocate %d bytes for ring",
-				vq->vq_queue_index, vq->vq_name, vq->vq_ring_size);
+			vq->vq_queue_index, vq->vq_name, vq->vq_ring_size);
 		error = -ENOMEM;
 		goto fail;
 	}
@@ -280,7 +268,7 @@ virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 			return -ENOMEM;
 		}
 
-		dxp->indirect_paddr = Z_MEM_PHYS_ADDR(dxp->indirect);
+		dxp->indirect_paddr = z_mem_phys_addr(dxp->indirect);
 		virtqueue_init_indirect_list(vq, dxp->indirect);
 	}
 
@@ -293,7 +281,7 @@ virtqueue_free_indirect(struct virtqueue *vq)
 	struct vq_desc_extra *dxp;
 	int i;
 
-	for (i = 0; i < vq->vq_max_indirect_size; ++i) {
+	for (i = 0; i < vq->vq_nentries; i++) {
 		dxp = &vq->vq_descx[i];
 
 		if (dxp->indirect == NULL)
@@ -388,32 +376,28 @@ virtqueue_free(struct virtqueue *vq)
 vm_paddr_t
 virtqueue_paddr(struct virtqueue *vq)
 {
-	uint32_t offset = (uintptr_t)vq->vq_ring_mem -
-				(uintptr_t)VRING_MEM_BASE;
+	uint32_t offset = (uintptr_t)vq->vq_ring_mem - (uintptr_t)VRING_MEM_BASE;
 	return Z_VIRTIO_RAM_START + offset;
 }
 
 vm_paddr_t
 virtqueue_desc_paddr(struct virtqueue *vq)
 {
-	uint32_t offset = (uintptr_t)vq->vq_ring.desc -
-				(uintptr_t)VRING_MEM_BASE;
+	uint32_t offset = (uintptr_t)vq->vq_ring.desc - (uintptr_t)VRING_MEM_BASE;
 	return Z_VIRTIO_RAM_START + offset;
 }
 
 vm_paddr_t
 virtqueue_avail_paddr(struct virtqueue *vq)
 {
-	uint32_t offset = (uintptr_t)vq->vq_ring.avail -
-					(uintptr_t)VRING_MEM_BASE;
+	uint32_t offset = (uintptr_t)vq->vq_ring.avail - (uintptr_t)VRING_MEM_BASE;
 	return Z_VIRTIO_RAM_START + offset;
 }
 
 vm_paddr_t
 virtqueue_used_paddr(struct virtqueue *vq)
 {
-	uint32_t offset = (uintptr_t)vq->vq_ring.used -
-				(uintptr_t)VRING_MEM_BASE;
+	uint32_t offset = (uintptr_t)vq->vq_ring.used - (uintptr_t)VRING_MEM_BASE;
 	return Z_VIRTIO_RAM_START + offset;
 }
 
@@ -554,20 +538,20 @@ virtqueue_disable_intr(struct virtqueue *vq)
 }
 
 int
-virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
-			int readable_len, sys_slist_t *writable, int writable_len)
+virtqueue_enqueue(struct virtqueue *vq, void *cookie, struct sglist *sg,
+    int readable, int writable)
 {
 	struct vq_desc_extra *dxp;
 	int needed;
 	uint16_t head_idx, idx;
 
-	needed = readable_len + writable_len;
+	needed = readable + writable;
+
+	LOG_DBG("%s(%d): readable: %d, writable: %d, needed: %d\n", __func__, __LINE__, readable, writable, needed);
 
 	VQASSERT(vq, cookie != NULL, "enqueuing with no cookie");
-#if 0
 	VQASSERT(vq, needed == sg->sg_nseg,
 	    "segment count mismatch, %d, %d", needed, sg->sg_nseg);
-#endif /* 0 */
 	VQASSERT(vq,
 	    needed <= vq->vq_nentries || needed <= vq->vq_max_indirect_size,
 	    "too many segments to enqueue: %d, %d/%d", needed,
@@ -579,9 +563,7 @@ virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
 		return -ENOSPC;
 
 	if (vq_ring_use_indirect(vq, needed)) {
-		vq_ring_enqueue_indirect(vq, cookie, readable,
-						readable_len, writable,
-						writable_len);
+		vq_ring_enqueue_indirect(vq, cookie, sg, readable, writable);
 		return (0);
 	} else if (vq->vq_free_cnt < needed)
 		return -EMSGSIZE;
@@ -595,9 +577,8 @@ virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
 	dxp->cookie = cookie;
 	dxp->ndescs = needed;
 
-	idx = vq_ring_enqueue(vq, vq->vq_ring.desc, head_idx,
-						readable, readable_len,
-						writable, writable_len);
+	idx = vq_ring_enqueue_segments(vq, vq->vq_ring.desc, head_idx,
+	    sg, readable, writable);
 
 	vq->vq_desc_head_idx = idx;
 	vq->vq_free_cnt -= needed;
@@ -643,15 +624,15 @@ virtqueue_poll(struct virtqueue *vq, uint32_t *len)
 {
 	void *cookie;
 
+	while ((cookie = virtqueue_dequeue(vq, len)) == NULL) {
+		k_busy_wait(100);
+	}
 #if 0
 	VIRTIO_BUS_POLL(vq->vq_dev);
-#endif /* 0 */
 	while ((cookie = virtqueue_dequeue(vq, len)) == NULL) {
-#if 0
 		cpu_spinwait();
 		VIRTIO_BUS_POLL(vq->vq_dev);
 #endif /* 0 */
-	}
 
 	return (cookie);
 }
@@ -745,72 +726,40 @@ vq_ring_update_avail(struct virtqueue *vq, uint16_t desc_idx)
 
 static uint16_t
 vq_ring_enqueue_segments(struct virtqueue *vq, struct vring_desc *desc,
-	uint16_t head_idx, sys_slist_t *sg, uint16_t size, uint16_t flags)
+    uint16_t head_idx, struct sglist *sg, int readable, int writable)
 {
-	virtio_data_t *data;
+	struct sglist_seg *seg;
 	struct vring_desc *dp;
-	int i;
+	int i, needed;
 	uint16_t idx;
 
-	idx = head_idx;
-	i = 0;
+	needed = readable + writable;
 
-	SYS_SLIST_FOR_EACH_CONTAINER(sg, data, next) {
-		if (i >= size)
-			break;
-
+	for (i = 0, idx = head_idx, seg = sg->sg_segs;
+	     i < needed;
+	     i++, idx = vq_htog16(vq, dp->next), seg++) {
+		LOG_DBG("%s(%d): i:%d seg:%p\n", __func__, __LINE__, i, seg);
+		LOG_DBG("%s(%d): seg ss_paddr:%lx ss_len:%lu",
+			__func__, __LINE__,
+			seg->ss_paddr, seg->ss_len);
 		VQASSERT(vq, idx != VQ_RING_DESC_CHAIN_END,
 		    "premature end of free desc chain");
 
 		dp = &desc[idx];
+		dp->addr = vq_gtoh64(vq, seg->ss_paddr);
+		dp->len = vq_gtoh32(vq, seg->ss_len);
+		dp->flags = 0;
+		LOG_DBG("%s(%d): dp addr:%llx len:%d flags:%d\n",
+			__func__, __LINE__,
+			dp->addr, dp->len, dp->flags);
 
-		uintptr_t paddr;
-
-#ifdef CONFIG_X86_MMU
-		paddr = z_mem_phys_addr(data->addr);
-#else
-		paddr = (uintptr_t)data->addr;
-#endif
-
-		uint64_t proper_end = vq_gtoh64(vq, paddr);
-
-		dp->addr = proper_end;
-		dp->len = vq_gtoh32(vq, data->size);
-		dp->flags = flags;
-
-		if (i < size - 1) {
+		if (i < needed - 1)
 			dp->flags |= vq_gtoh16(vq, VRING_DESC_F_NEXT);
-		}
-
-		i++;
-		idx = vq_htog16(vq, dp->next);
+		if (i >= readable)
+			dp->flags |= vq_gtoh16(vq, VRING_DESC_F_WRITE);
 	}
 
 	return (idx);
-}
-
-static uint16_t
-vq_ring_enqueue(struct virtqueue *vq,
-	struct vring_desc *desc, uint16_t head_idx, sys_slist_t *readable,
-	int readable_len, sys_slist_t *writable, int writable_len)
-{
-	if (readable != NULL) {
-		head_idx = vq_ring_enqueue_segments(vq, desc, head_idx,
-					readable, readable_len, 0);
-	}
-
-	if (writable != NULL) {
-		/* We need to set the last descriptor flag as next */
-		if (readable != NULL) {
-			desc[head_idx-1].flags |= vq_gtoh16(vq, VRING_DESC_F_NEXT);
-		}
-		head_idx = vq_ring_enqueue_segments(vq, desc, head_idx,
-			writable, writable_len,
-			vq_gtoh16(vq, VRING_DESC_F_WRITE)
-			);
-	}
-
-	return head_idx;
 }
 
 static int
@@ -831,16 +780,14 @@ vq_ring_use_indirect(struct virtqueue *vq, int needed)
 
 static void
 vq_ring_enqueue_indirect(struct virtqueue *vq, void *cookie,
-	sys_slist_t *readable, int readable_len, sys_slist_t *writable,
-	int writable_len)
+    struct sglist *sg, int readable, int writable)
 {
 	struct vring_desc *dp;
 	struct vq_desc_extra *dxp;
 	int needed;
 	uint16_t head_idx;
 
-	needed = readable_len + writable_len;
-
+	needed = readable + writable;
 	VQASSERT(vq, needed <= vq->vq_max_indirect_size,
 	    "enqueuing too many indirect descriptors");
 
@@ -867,8 +814,8 @@ vq_ring_enqueue_indirect(struct virtqueue *vq, void *cookie,
 	dp->len = vq_gtoh32(vq, needed * sizeof(struct vring_desc));
 	dp->flags = vq_gtoh16(vq, VRING_DESC_F_INDIRECT);
 
-	vq_ring_enqueue(vq, dxp->indirect, 0, readable, readable_len,
-				writable, writable_len);
+	vq_ring_enqueue_segments(vq, dxp->indirect, 0,
+	    sg, readable, writable);
 
 	vq->vq_desc_head_idx = vq_htog16(vq, dp->next);
 	vq->vq_free_cnt--;
@@ -959,12 +906,15 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 	vq->vq_free_cnt += dxp->ndescs;
 	dxp->ndescs--;
 
+/*
 	uint16_t host_supports_indirect = vq_gtoh16(vq, VRING_DESC_F_INDIRECT);
-
 	uint16_t vring_has_next = vq_gtoh16(vq, VRING_DESC_F_NEXT);
-
 	if ((dp->flags & host_supports_indirect) == 0) {
 		while (dp->flags & vring_has_next) {
+*/
+
+	if ((dp->flags & vq_gtoh16(vq, VRING_DESC_F_INDIRECT)) == 0) {
+		while (dp->flags & vq_gtoh16(vq, VRING_DESC_F_NEXT)) {
 			uint16_t next_idx = vq_htog16(vq, dp->next);
 			VQ_RING_ASSERT_VALID_IDX(vq, next_idx);
 			dp = &vq->vq_ring.desc[next_idx];
