@@ -186,11 +186,11 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 	if (size == 0) {
 		LOG_INF("Virtqueue %d (%s) size is zero", queue,
 						info->vqai_name);
-		return (-ENODEV);
+		return -ENODEV;
 	} else if (!powerof2(size)) {
 		LOG_INF("Virtqueue %d (%s) size is not a power of 2: %d",
 			queue, info->vqai_name, size);
-		return (-ENXIO);
+		return -ENXIO;
 	}
 
 	vq = k_heap_alloc(&VRING_MEM, sizeof(struct virtqueue) +
@@ -281,7 +281,7 @@ virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 
 		if (dxp->indirect == NULL) {
 			LOG_ERR("Cannot allocate direct list, out of memory");
-			return (-ENOMEM);
+			return -ENOMEM;
 		}
 
 		dxp->indirect_paddr = Z_MEM_PHYS_ADDR(dxp->indirect);
@@ -335,7 +335,7 @@ virtqueue_reinit(struct virtqueue *vq, uint16_t size)
 		LOG_ERR("Cannot reinitialize virtqueue %s with size %d, old"
 			" size %d",
 			vq->vq_name, size, vq->vq_nentries);
-		return (-EINVAL);
+		return -EINVAL;
 	}
 
 	/* Warn if the virtqueue was not properly cleaned up. */
@@ -578,9 +578,9 @@ virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
 	    vq->vq_nentries, vq->vq_max_indirect_size);
 
 	if (needed < 1)
-		return (-EINVAL);
+		return -EINVAL;
 	if (vq->vq_free_cnt == 0)
-		return (-ENOSPC);
+		return -ENOSPC;
 
 	if (vq_ring_use_indirect(vq, needed)) {
 		vq_ring_enqueue_indirect(vq, cookie, readable,
@@ -588,7 +588,7 @@ virtqueue_enqueue(struct virtqueue *vq, void *cookie, sys_slist_t *readable,
 						writable_len);
 		return (0);
 	} else if (vq->vq_free_cnt < needed)
-		return (-EMSGSIZE);
+		return -EMSGSIZE;
 
 	head_idx = vq->vq_desc_head_idx;
 	VQ_RING_ASSERT_VALID_IDX(vq, head_idx);
