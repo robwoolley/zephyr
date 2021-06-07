@@ -27,29 +27,11 @@
  * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
 
-#ifdef CONFIG_VIRTIO_RNG
 
 #include <drivers/virtio/virtio_zephyr.h>
-#include <logging/log.h>
 
-
-struct virtio_rng_dev;
-
-#ifndef CONFIG_VIRTIO_RNG_LOG_LEVEL
-#define CONFIG_VIRTIO_RNG_LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
+#ifndef CONFIG_VIRTIO_LOG_LEVEL
+#define CONFIG_VIRTIO_LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #endif
-
-int virtio_rng_init(const struct device *ddev);
-int virtio_rng_read_data(device_t dev, void *out, size_t *len);
-
-#if 0
-typedef struct virtio_rng_dev {
-				device_t virtio_dev;
-				struct virtqueue *rng_vq;
-				int (*rng_read)(struct virtio_rng_dev *dev, void *out, size_t *len);
-} virtio_rng_dev_t;
-#endif /* 0 */
-
-#endif
+LOG_MODULE_REGISTER(virtio, CONFIG_VIRTIO_LOG_LEVEL);

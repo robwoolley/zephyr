@@ -32,7 +32,7 @@
 
 #include <zephyr.h>
 
-#include <drivers/virtio/virtio.h>
+#include <drivers/virtio/virtio_zephyr.h>
 #include <drivers/virtio/virtio_config.h>
 #include <drivers/virtio/pcie/utils.h>
 
@@ -54,30 +54,31 @@ LOG_MODULE_DECLARE(virtio, CONFIG_VIRTIO_LOG_LEVEL);
 
 /* General functions */
 
-bool virtio_pci_with_feature(virtio_device_t *dev, uint64_t feature)
+bool virtio_pci_with_feature(device_t dev, uint64_t feature)
 {
-	return (dev->data.virtio_features & feature) != 0;
+	virtio_dev_data_t *data = dev->data;
+	return (data->virtio_features & feature) != 0;
 }
 
-static uint32_t virtio_pci_read(const virtio_device_t *dev, uintptr_t offset,
+static uint32_t virtio_pci_read(const device_t dev, uintptr_t offset,
 					size_t size)
 {
-	const virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	uint32_t data;
 
-	if (config->virtio_io_res_type == VIRTIO_IO) {
+	if (devdata->virtio_io_res_type == VIRTIO_IO) {
 		switch (size) {
 		case 1:
-			data = sys_in8(config->virtio_io_res+offset);
+			data = sys_in8(devdata->virtio_io_res+offset);
 
 			break;
 		case 2:
-			data = sys_in16(config->virtio_io_res+offset);
+			data = sys_in16(devdata->virtio_io_res+offset);
 
 			break;
 		case 4:
-			data = sys_in32(config->virtio_io_res+offset);
+			data = sys_in32(devdata->virtio_io_res+offset);
 
 			break;
 		default:
@@ -88,15 +89,15 @@ static uint32_t virtio_pci_read(const virtio_device_t *dev, uintptr_t offset,
 	} else {
 		switch (size) {
 		case 1:
-			data = sys_read8(config->virtio_io_res+offset);
+			data = sys_read8(devdata->virtio_io_res+offset);
 
 			break;
 		case 2:
-			data = sys_read16(config->virtio_io_res+offset);
+			data = sys_read16(devdata->virtio_io_res+offset);
 
 			break;
 		case 4:
-			data = sys_read32(config->virtio_io_res+offset);
+			data = sys_read32(devdata->virtio_io_res+offset);
 
 			break;
 		default:
@@ -106,92 +107,94 @@ static uint32_t virtio_pci_read(const virtio_device_t *dev, uintptr_t offset,
 		}
 	}
 
-	return virtio_htog32(config->virtio_pci_modern, data);
+	return virtio_htog32(devdata->virtio_pci_modern, data);
 }
 
-static void virtio_pci_write(const virtio_device_t *dev, uintptr_t offset,
+static void virtio_pci_write(const device_t dev, uintptr_t offset,
 					uint32_t data, size_t size)
 {
-	const virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	data = virtio_gtoh32(config->virtio_pci_modern, data);
+	data = virtio_gtoh32(devdata->virtio_pci_modern, data);
 
-	if (config->virtio_io_res_type == VIRTIO_IO) {
+	if (devdata->virtio_io_res_type == VIRTIO_IO) {
 		switch (size) {
 		case 1:
-			sys_out8(data, config->virtio_io_res+offset);
+			sys_out8(data, devdata->virtio_io_res+offset);
 			break;
 		case 2:
-			sys_out16(data, config->virtio_io_res+offset);
+			sys_out16(data, devdata->virtio_io_res+offset);
 			break;
 		case 4:
-			sys_out32(data, config->virtio_io_res+offset);
+			sys_out32(data, devdata->virtio_io_res+offset);
 			break;
 		}
 	} else {
 		switch (size) {
 		case 1:
-			sys_write8(data, config->virtio_io_res+offset);
+			sys_write8(data, devdata->virtio_io_res+offset);
 			break;
 		case 2:
-			sys_write16(data, config->virtio_io_res+offset);
+			sys_write16(data, devdata->virtio_io_res+offset);
 			break;
 		case 4:
-			sys_write32(data, config->virtio_io_res+offset);
+			sys_write32(data, devdata->virtio_io_res+offset);
 			break;
 		}
 	}
 
 }
 
-static void virtio_pci_write_64(virtio_device_t *dev, uintptr_t offset,
+static void virtio_pci_write_64(device_t dev, uintptr_t offset,
 					uint64_t data)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	uint32_t val0, val1;
 
-	data = virtio_gtoh64(config->virtio_pci_modern, data);
+	data = virtio_gtoh64(devdata->virtio_pci_modern, data);
 	val0 = data & 0xFFFFFFFF;
 	val1 = data >> 32;
 	virtio_pci_write(dev, offset, val0, 4);
 	virtio_pci_write(dev, offset+4, val1, 4);
 }
 
-static uint8_t virtio_pci_get_status(virtio_device_t *dev)
+static uint8_t virtio_pci_get_status(device_t dev)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	uint8_t status;
 
-	if (config->virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		status = virtio_pci_read(dev,
 					VIRTIO_PCI_COMMON_STATUS, 1);
 	} else {
-		status = virtio_pci_read_conf(config->virtio_pci_bdf,
+		status = virtio_pci_read_conf(devdata->virtio_pci_bdf,
 						VIRTIO_PCI_STATUS, 1);
 	}
 	return status;
 }
 
-static void virtio_pci_set_status(virtio_device_t *dev, uint8_t status)
+static void virtio_pci_set_status(device_t dev, uint8_t status)
 {
+	virtio_dev_data_t *devdata = dev->data;
+
 	if (status != VIRTIO_CONFIG_STATUS_RESET) {
 		status |= virtio_pci_get_status(dev);
 	}
 
-	if (dev->data.virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		virtio_pci_write(dev, VIRTIO_PCI_COMMON_STATUS, status, 1);
 	} else {
 		virtio_pci_write(dev, VIRTIO_PCI_STATUS, status, 1);
 	}
 }
 
-static int virtio_pci_map_modern_resource(const virtio_device_t *dev,
+static int virtio_pci_map_modern_resource(const device_t dev,
 						virtio_modern_resource_t *res)
 {
 
-	const virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	/* TODO: There should probably be a better system to track which bars for
 	 *	 the virtio device have been read in. It seems if you map the
@@ -199,15 +202,15 @@ static int virtio_pci_map_modern_resource(const virtio_device_t *dev,
 	 */
 
 
-	if (res->bar == config->virtio_common.bar) {
-		res->io_addr = config->virtio_io_res + res->offset;
+	if (res->bar == devdata->virtio_common.bar) {
+		res->io_addr = devdata->virtio_io_res + res->offset;
 		return 0;
 	}
 
 	if (!res->io_addr) {
 		struct pcie_mbar bar;
 
-		if (!pcie_get_mbar(config->virtio_pci_bdf,
+		if (!pcie_get_mbar(devdata->virtio_pci_bdf,
 			res->bar, &bar)) {
 			LOG_ERR("Unable to find resource mbar");
 			return -ENXIO;
@@ -230,11 +233,13 @@ static int virtio_pci_map_modern_resource(const virtio_device_t *dev,
 
 
 /* Negotiate features: */
-static uint64_t virtio_pci_read_features(virtio_device_t *dev)
+static uint64_t virtio_pci_read_features(device_t dev)
 {
 	uint64_t features;
 
-	if (dev->data.virtio_pci_modern) {
+	virtio_dev_data_t *devdata = dev->data;
+
+	if (devdata->virtio_pci_modern) {
 		virtio_pci_write(dev,
 				VIRTIO_PCI_COMMON_DFSELECT, 0, 1);
 		features = virtio_pci_read(dev, VIRTIO_PCI_COMMON_DF, 4);
@@ -249,9 +254,11 @@ static uint64_t virtio_pci_read_features(virtio_device_t *dev)
 	return features;
 }
 
-static void virtio_pci_write_features(virtio_device_t *dev, uint64_t features)
+static void virtio_pci_write_features(device_t dev, uint64_t features)
 {
-	if (dev->data.virtio_pci_modern) {
+	virtio_dev_data_t *devdata = dev->data;
+
+	if (devdata->virtio_pci_modern) {
 		uint32_t feature0 = features;
 		uint32_t feature1 = features >> 32;
 
@@ -264,21 +271,21 @@ static void virtio_pci_write_features(virtio_device_t *dev, uint64_t features)
 	}
 }
 
-int virtio_pci_neogitate_feature(virtio_device_t *dev,
+int virtio_pci_negotiate_feature(device_t dev,
 					uint64_t my_features)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	config->virtio_pci_host_features = virtio_pci_read_features(dev);
+	devdata->virtio_pci_host_features = virtio_pci_read_features(dev);
 
-	if (config->virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		my_features |= VIRTIO_F_VERSION_1;
 	}
 
-	LOG_DBG("Host Features: 0x%llx\n", config->virtio_pci_host_features);
+	LOG_DBG("Host Features: 0x%llx\n", devdata->virtio_pci_host_features);
 	LOG_DBG("My Features: 0x%llx\n", my_features);
 
-	uint64_t features = config->virtio_pci_host_features & my_features;
+	uint64_t features = devdata->virtio_pci_host_features & my_features;
 
 	/* filter transport features */
 	uint64_t transport, mask;
@@ -296,11 +303,11 @@ int virtio_pci_neogitate_feature(virtio_device_t *dev,
 
 	LOG_DBG("Negotiated features: 0x%llx\n", features);
 
-	config->virtio_features = features;
+	devdata->virtio_features = features;
 
 	virtio_pci_write_features(dev, features);
 
-	if (config->virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		virtio_pci_set_status(dev, VIRTIO_CONFIG_S_FEATURES_OK);
 		uint8_t status = virtio_pci_get_status(dev);
 
@@ -315,24 +322,24 @@ int virtio_pci_neogitate_feature(virtio_device_t *dev,
 
 /* Virtqueue methods */
 
-static inline void virtio_pci_select_virtqueue(virtio_device_t *dev, int idx)
+static inline void virtio_pci_select_virtqueue(device_t dev, int idx)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	LOG_DBG("Selecting Virtqueue %d", idx);
-	uint32_t offset = config->virtio_pci_modern ? VIRTIO_PCI_COMMON_Q_SELECT
+	uint32_t offset = devdata->virtio_pci_modern ? VIRTIO_PCI_COMMON_Q_SELECT
 							: VIRTIO_PCI_QUEUE_SEL;
 
 	virtio_pci_write(dev, offset, idx, 2);
 }
 
-static unsigned long virtio_pci_virtqueue_notify_off(virtio_device_t *dev,
+static unsigned long virtio_pci_virtqueue_notify_off(device_t dev,
 							int idx)
 {
 
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	if (!config->virtio_pci_modern) {
+	if (!devdata->virtio_pci_modern) {
 		return VIRTIO_PCI_QUEUE_NOTIFY;
 	}
 
@@ -340,27 +347,29 @@ static unsigned long virtio_pci_virtqueue_notify_off(virtio_device_t *dev,
 	uint16_t notify_offset = virtio_pci_read(dev,
 						VIRTIO_PCI_COMMON_Q_NOFF, 2);
 
-	return notify_offset * config->virtio_notify_offset_mult;
+	return notify_offset * devdata->virtio_notify_offset_mult;
 }
 
-static inline uint16_t virtio_pci_virtqueue_size(virtio_device_t *dev,
+static inline uint16_t virtio_pci_virtqueue_size(device_t dev,
 							int idx)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	virtio_pci_select_virtqueue(dev, idx);
-	uint32_t offset = config->virtio_pci_modern ? VIRTIO_PCI_COMMON_Q_SIZE
+	uint32_t offset = devdata->virtio_pci_modern ? VIRTIO_PCI_COMMON_Q_SIZE
 							: VIRTIO_PCI_QUEUE_NUM;
 
 	return virtio_pci_read(dev, offset, 2);
 }
 
-static void virtio_pci_disable_virtqueue(virtio_device_t *dev, int idx)
+static void virtio_pci_disable_virtqueue(device_t dev, int idx)
 {
+	virtio_dev_data_t *devdata = dev->data;
+
 	LOG_DBG("Disabling virtqueue %d", idx);
 	virtio_pci_select_virtqueue(dev, idx);
 
-	if (dev->data.virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		virtio_pci_write_64(dev, VIRTIO_PCI_COMMON_Q_DESCLO, 0);
 		virtio_pci_write_64(dev, VIRTIO_PCI_COMMON_Q_AVAILLO, 0);
 		virtio_pci_write_64(dev, VIRTIO_PCI_COMMON_Q_USEDLO, 0);
@@ -369,11 +378,13 @@ static void virtio_pci_disable_virtqueue(virtio_device_t *dev, int idx)
 	}
 }
 
-static void virtio_pci_set_virtqueue(virtio_device_t *dev, struct virtqueue *vq)
+static void virtio_pci_set_virtqueue(device_t dev, struct virtqueue *vq)
 {
+	virtio_dev_data_t *devdata = dev->data;
+
 	virtio_pci_select_virtqueue(dev, virtqueue_index(vq));
 
-	if (dev->data.virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		virtio_pci_write(dev, VIRTIO_PCI_COMMON_Q_SIZE,
 					virtqueue_size(vq), 2);
 		virtio_pci_write_64(dev, VIRTIO_PCI_COMMON_Q_DESCLO,
@@ -389,32 +400,32 @@ static void virtio_pci_set_virtqueue(virtio_device_t *dev, struct virtqueue *vq)
 	}
 }
 
-static void virtio_pci_free_virtqueues(virtio_device_t *dev)
+static void virtio_pci_free_virtqueues(device_t dev)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	struct vtpci_virtqueue *vqx;
 
-	for (int idx = 0; idx < config->virtio_num_queues; idx++) {
+	for (int idx = 0; idx < devdata->virtio_num_queues; idx++) {
 		virtio_pci_disable_virtqueue(dev, idx);
 
-		vqx = &config->virtio_queues[idx];
+		vqx = &devdata->virtio_queues[idx];
 		virtqueue_free(vqx->vqx_vq);
 		vqx->vqx_vq = NULL;
 	}
 
-	k_free(config->virtio_queues);
-	config->virtio_queues = NULL;
-	config->virtio_num_queues = 0;
+	k_free(devdata->virtio_queues);
+	devdata->virtio_queues = NULL;
+	devdata->virtio_num_queues = 0;
 }
 
-int virtio_pci_alloc_virtqueues(virtio_device_t *dev, int flags, int num_vq,
+int virtio_pci_alloc_virtqueues(device_t dev, int flags, int num_vq,
 			struct vq_alloc_info *virtio_info)
 {
 	int error = 0;
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	if (config->virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		uint16_t max_num_vqs = virtio_pci_read(dev,
 						VIRTIO_PCI_COMMON_NUMQ, 2);
 		if (num_vq > max_num_vqs) {
@@ -428,32 +439,32 @@ int virtio_pci_alloc_virtqueues(virtio_device_t *dev, int flags, int num_vq,
 	/* legacy virtqueues must be aligned on a boundary of 4096
 	 * modern virtqueues do not have this requirement
 	 */
-	int align = config->virtio_pci_modern ? 1 : 4096;
+	int align = devdata->virtio_pci_modern ? 1 : 4096;
 
-	if (config->virtio_num_queues != 0) {
-		LOG_ERR("Allocated already %d?\n", config->virtio_num_queues);
+	if (devdata->virtio_num_queues != 0) {
+		LOG_ERR("Allocated already %d?\n", devdata->virtio_num_queues);
 		return -EALREADY;
 	}
 	if (num_vq <= 0) {
 		return -EINVAL;
 	}
 
-	config->virtio_queues = k_malloc(num_vq * sizeof(struct vtpci_virtqueue));
+	devdata->virtio_queues = k_malloc(num_vq * sizeof(struct vtpci_virtqueue));
 
-	if (config->virtio_queues == NULL) {
+	if (devdata->virtio_queues == NULL) {
 		LOG_ERR("Not enough memory to allocate virtqueue");
 		return -ENOMEM;
 	}
 
 	for (int i = 0; i < num_vq; ++i) {
-		struct vtpci_virtqueue *vqx = &config->virtio_queues[i];
+		struct vtpci_virtqueue *vqx = &devdata->virtio_queues[i];
 		struct virtqueue *vq;
 		struct vq_alloc_info *vqi = &virtio_info[i];
 
 		uint16_t size = virtio_pci_virtqueue_size(dev, i);
 		unsigned long notify = virtio_pci_virtqueue_notify_off(dev, i);
 
-		error = virtqueue_alloc(*dev, i, size, notify, align, ~(uintptr_t)0 , vqi, &vq);
+		error = virtqueue_alloc(dev, i, size, notify, align, ~(uintptr_t)0 , vqi, &vq);
 
 		if (error) {
 			break;
@@ -462,7 +473,7 @@ int virtio_pci_alloc_virtqueues(virtio_device_t *dev, int flags, int num_vq,
 		virtio_pci_set_virtqueue(dev, vq);
 		vqx->vqx_vq = *(vqi->vqai_vq) = vq;
 		vqx->vqx_no_interrupt = vqi->vqai_intr == NULL;
-		config->virtio_num_queues++;
+		devdata->virtio_num_queues++;
 	}
 
 	if (error) {
@@ -475,19 +486,19 @@ int virtio_pci_alloc_virtqueues(virtio_device_t *dev, int flags, int num_vq,
 	return error;
 }
 
-void virtio_pci_notify_virtqueue(virtio_device_t *dev, uint16_t queue,
+void virtio_pci_notify_virtqueue(device_t dev, uint16_t queue,
 				unsigned long offset)
 {
 	LOG_DBG("Notifying virtqueue %d", queue);
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	if (config->virtio_pci_modern) {
-		if (virtio_pci_map_modern_resource(dev, &config->virtio_notify)) {
+	if (devdata->virtio_pci_modern) {
+		if (virtio_pci_map_modern_resource(dev, &devdata->virtio_notify)) {
 			LOG_ERR("Unable to map Notify modern resource");
 			return;
 		}
-		sys_write16(virtio_gtoh16(config->virtio_pci_modern, queue),
-			config->virtio_notify.io_addr + offset);
+		sys_write16(virtio_gtoh16(devdata->virtio_pci_modern, queue),
+			devdata->virtio_notify.io_addr + offset);
 	} else {
 		virtio_pci_write(dev, offset, queue, 2);
 	}
@@ -496,16 +507,16 @@ void virtio_pci_notify_virtqueue(virtio_device_t *dev, uint16_t queue,
 
 /* Interrupt methods */
 
-static uint8_t virtio_pci_read_isr(const virtio_device_t *dev)
+static uint8_t virtio_pci_read_isr(const device_t dev)
 {
 
-	const virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	if (config->virtio_pci_modern) {
-		if (!config->virtio_isr.io_addr) {
+	if (devdata->virtio_pci_modern) {
+		if (!devdata->virtio_isr.io_addr) {
 			return 0;
 		}
-		return sys_read8(config->virtio_isr.io_addr);
+		return sys_read8(devdata->virtio_isr.io_addr);
 	}
 
 	return virtio_pci_read(dev, VIRTIO_PCI_ISR, 1);
@@ -514,28 +525,28 @@ static uint8_t virtio_pci_read_isr(const virtio_device_t *dev)
 /* Handlers */
 static void virtio_pci_device_config_change(const void *arg)
 {
-	const virtio_device_t *dev = arg;
+	const struct device *dev = arg;
+	const struct __virtio_bus_interface__ *api = dev->api;
 
 	LOG_DBG("Device config changed");
-	virtio_bus_api_t *api = dev->api;
 
 	if (api->config_change != NULL)
-		api->config_change(dev);
+		api->config_change((device_t) dev);
 }
 
 #if defined(CONFIG_PCIE_MSI_X) && defined(CONFIG_PCIE_MSI_MULTI_VECTOR)
 
 static void virtio_pci_shared_msix_intr(const void *arg)
 {
-	LOG_DBG("Received MSI-X shared interrupt");
+	const struct device *dev = arg;
+	virtio_dev_data_t *devdata = dev->data;
+	struct vtpci_virtqueue *vqx = devdata->virtio_queues;
 
-	const virtio_device_t *dev = arg;
-	const virtio_config_t *config = &dev->data;
-	struct vtpci_virtqueue *vqx = config->virtio_queues;
+	LOG_DBG("Received MSI-X shared interrupt");
 
 	int no_work = 0;
 
-	for (int i = 0; i < config->virtio_num_queues; ++i, ++vqx) {
+	for (int i = 0; i < devdata->virtio_num_queues; ++i, ++vqx) {
 		if (!vqx->vqx_no_interrupt)
 			no_work |= virtqueue_intr_filter(vqx->vqx_vq);
 	}
@@ -545,8 +556,8 @@ static void virtio_pci_shared_msix_intr(const void *arg)
 		return;
 	}
 
-	vqx = config->virtio_queues;
-	for (int i = 0; i < config->virtio_num_queues; ++i, ++vqx) {
+	vqx = devdata->virtio_queues;
+	for (int i = 0; i < devdata->virtio_num_queues; ++i, ++vqx) {
 		if (!vqx->vqx_no_interrupt) {
 			virtqueue_disable_intr(vqx->vqx_vq);
 			virtqueue_intr(vqx->vqx_vq);
@@ -568,7 +579,7 @@ static void virtio_pci_pervirtio_msix_intr(const void *arg)
 	virtqueue_intr(vqx->vqx_vq);
 }
 
-static int virtio_pci_register_msix_intr(virtio_device_t *dev, int offset,
+static int virtio_pci_register_msix_intr(device_t dev, int offset,
 						int vector)
 {
 	virtio_pci_write(dev, offset, vector, 2);
@@ -579,12 +590,12 @@ static int virtio_pci_register_msix_intr(virtio_device_t *dev, int offset,
 
 static void virtio_pci_legacy_intx(const void *arg)
 {
-	const virtio_device_t *dev = arg;
-	const virtio_config_t *config = &dev->data;
+	const struct device *dev = arg;
+	virtio_dev_data_t *devdata = dev->data;
 
 	LOG_DBG("Received legacy interrupt");
 
-	uint8_t isr = virtio_pci_read_isr(dev);
+	uint8_t isr = virtio_pci_read_isr((device_t) dev);
 
 	if (isr & VIRTIO_PCI_ISR_CONFIG) {
 		LOG_DBG("Legacy interrupt informed device configuration change");
@@ -593,9 +604,9 @@ static void virtio_pci_legacy_intx(const void *arg)
 
 	if (isr & VIRTIO_PCI_ISR_INTR) {
 		LOG_DBG("Legacy interrupt notifies for virtqueue");
-		struct vtpci_virtqueue *vqx = config->virtio_queues;
+		struct vtpci_virtqueue *vqx = devdata->virtio_queues;
 
-		for (int i = 0; i < config->virtio_num_queues; ++i, ++vqx) {
+		for (int i = 0; i < devdata->virtio_num_queues; ++i, ++vqx) {
 			if (!vqx->vqx_no_interrupt)
 				virtqueue_intr(vqx->vqx_vq);
 		}
@@ -620,19 +631,19 @@ static inline void _write_pcie_irq_data(pcie_bdf_t bdf, uint32_t data)
 }
 
 #if defined(CONFIG_PCIE_MSI_X) && defined(CONFIG_PCIE_MSI_MULTI_VECTOR)
-static int virtio_pci_msix_pervirtio_setup(virtio_device_t *dev, int priority)
+static int virtio_pci_msix_pervirtio_setup(device_t dev, int priority)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	if (config->virtio_flags & VTPCI_FLAG_NO_MSIX) {
+	if (devdata->virtio_flags & VTPCI_FLAG_NO_MSIX) {
 		LOG_ERR("MSI-X interrupts are not supported");
 		return -ENOTSUP;
 	}
 
 	uint8_t n_vectors = 0;
 
-	for (int i = 0; i < config->virtio_num_queues; ++i) {
-		if (!config->virtio_queues[i].vqx_no_interrupt)
+	for (int i = 0; i < devdata->virtio_num_queues; ++i) {
+		if (!devdata->virtio_queues[i].vqx_no_interrupt)
 			n_vectors++;
 	}
 
@@ -641,24 +652,24 @@ static int virtio_pci_msix_pervirtio_setup(virtio_device_t *dev, int priority)
 
 	LOG_DBG("Requesting %d MSI-X vectors", n_vectors);
 
-	if (n_vectors > config->virtio_msix_count) {
+	if (n_vectors > devdata->virtio_msix_count) {
 		LOG_ERR("Virtio provides %d vectors, not enough for a per-vq"
-			" setup", config->virtio_msix_count);
+			" setup", devdata->virtio_msix_count);
 		return -ENXIO;
 	}
 
-	config->virtio_msi_vectors = k_malloc(sizeof(msi_vector_t) *
+	devdata->virtio_msi_vectors = k_malloc(sizeof(msi_vector_t) *
 						n_vectors);
 
-	if (config->virtio_msi_vectors == NULL) {
+	if (devdata->virtio_msi_vectors == NULL) {
 		LOG_ERR("Not enough memory to allocate %d MSI-X vectors",
 				n_vectors);
 		return -ENOMEM;
 	}
 
-	uint8_t alloc_vec = pcie_msi_vectors_allocate(config->virtio_pci_bdf,
+	uint8_t alloc_vec = pcie_msi_vectors_allocate(devdata->virtio_pci_bdf,
 							priority,
-							config->virtio_msi_vectors,
+							devdata->virtio_msi_vectors,
 							n_vectors);
 
 	if (alloc_vec < n_vectors) {
@@ -673,46 +684,46 @@ static int virtio_pci_msix_pervirtio_setup(virtio_device_t *dev, int priority)
 
 	int vector = 0;
 
-	if (!pcie_msi_vector_connect(config->virtio_pci_bdf,
-			&config->virtio_msi_vectors[vector++],
-			virtio_pci_device_config_change, config, 0)) {
+	if (!pcie_msi_vector_connect(devdata->virtio_pci_bdf,
+			&devdata->virtio_msi_vectors[vector++],
+			virtio_pci_device_config_change, devdata, 0)) {
 		LOG_ERR("Unable to connect the device configuration change"
 			" vector");
 		return -ENXIO;
 	}
 
-	for (int i = 0; i < config->virtio_num_queues; ++i) {
-		if (config->virtio_queues[i].vqx_no_interrupt)
+	for (int i = 0; i < devdata->virtio_num_queues; ++i) {
+		if (devdata->virtio_queues[i].vqx_no_interrupt)
 			continue;
-		if (!pcie_msi_vector_connect(config->virtio_pci_bdf,
-					&config->virtio_msi_vectors[vector++],
+		if (!pcie_msi_vector_connect(devdata->virtio_pci_bdf,
+					&devdata->virtio_msi_vectors[vector++],
 					virtio_pci_pervirtio_msix_intr,
-					&config->virtio_queues[i],
+					&devdata->virtio_queues[i],
 					0)) {
 			LOG_ERR("Failed to setup MSI-X interrupt handler to"
 				" vector %u\n", vector);
 			return -ENXIO;
 		}
 
-		msi_vector_t *vec = &config->virtio_msi_vectors[i];
+		msi_vector_t *vec = &devdata->virtio_msi_vectors[i];
 
 		LOG_DBG("MSI-X Vector %u[IRQ=%u,ISRV=%u]", i, vec->arch.irq,
 								vec->arch.vector);
 	}
 
-	if (!pcie_msi_enable(config->virtio_pci_bdf, config->virtio_msi_vectors,
+	if (!pcie_msi_enable(devdata->virtio_pci_bdf, devdata->virtio_msi_vectors,
 				n_vectors)) {
 		LOG_ERR("Unable to enable MSI-X for virtio");
 		return -ENXIO;
 	}
 
-	config->virtio_msix_count = n_vectors;
+	devdata->virtio_msix_count = n_vectors;
 
 	virtio_pci_register_msix_intr(dev, VIRTIO_PCI_COMMON_MSIX, 0);
 	vector = 1;
 
-	for (int i = 0; i < config->virtio_num_queues; i++) {
-		uint16_t idx = config->virtio_queues[i].vqx_no_interrupt ?
+	for (int i = 0; i < devdata->virtio_num_queues; i++) {
+		uint16_t idx = devdata->virtio_queues[i].vqx_no_interrupt ?
 						VIRTIO_PCI_MSIX_NO_INTERRUPT :
 						vector++;
 
@@ -727,41 +738,41 @@ static int virtio_pci_msix_pervirtio_setup(virtio_device_t *dev, int priority)
 		}
 	}
 
-	config->virtio_flags |= VTPCI_FLAG_MSIX;
+	devdata->virtio_flags |= VTPCI_FLAG_MSIX;
 	LOG_INF("Enabled MSI-X interrupts\n");
 	return 0;
 }
 
-static int virtio_pci_msix_shared_setup(virtio_device_t *dev, int priority)
+static int virtio_pci_msix_shared_setup(device_t dev, int priority)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	/* require 2 vectors, one for device configuration changes, 1 for
 	 * notifying us when a virtqueue has new data
 	 */
 	uint8_t n_vectors = 2;
 
-	if (config->virtio_flags & VTPCI_FLAG_NO_MSIX) {
+	if (devdata->virtio_flags & VTPCI_FLAG_NO_MSIX) {
 		LOG_ERR("No MSI-X support");
 		return -ENOTSUP;
 	}
 
-	if (n_vectors > config->virtio_msix_count) {
+	if (n_vectors > devdata->virtio_msix_count) {
 		LOG_ERR("Not enough MSI-X vectors for shared interrupts");
 		return -ENXIO;
 	}
 
-	config->virtio_msi_vectors = k_malloc(sizeof(msi_vector_t) *
+	devdata->virtio_msi_vectors = k_malloc(sizeof(msi_vector_t) *
 						n_vectors);
 
-	if (config->virtio_msi_vectors == NULL) {
+	if (devdata->virtio_msi_vectors == NULL) {
 		LOG_ERR("Not enough memory for %u MSI-X vectors", n_vectors);
 		return -ENOMEM;
 	}
 
-	uint8_t alloc_vec = pcie_msi_vectors_allocate(config->virtio_pci_bdf,
+	uint8_t alloc_vec = pcie_msi_vectors_allocate(devdata->virtio_pci_bdf,
 						priority,
-						config->virtio_msi_vectors,
+						devdata->virtio_msi_vectors,
 						n_vectors);
 
 	if (alloc_vec < n_vectors) {
@@ -779,34 +790,34 @@ static int virtio_pci_msix_shared_setup(virtio_device_t *dev, int priority)
 				virtio_pci_device_config_change :
 				virtio_pci_shared_msix_intr;
 
-		if (!pcie_msi_vector_connect(config->virtio_pci_bdf,
-						&config->virtio_msi_vectors[i],
-						handler, config,
+		if (!pcie_msi_vector_connect(devdata->virtio_pci_bdf,
+						&devdata->virtio_msi_vectors[i],
+						handler, devdata,
 						0)) {
 			LOG_ERR("Failed to setup MSI-X interrupt handler to "
 				"vector %u\n", i);
 			return -ENXIO;
 		}
 
-		msi_vector_t *vec = &config->virtio_msi_vectors[i];
+		msi_vector_t *vec = &devdata->virtio_msi_vectors[i];
 
 		LOG_DBG("MSI-X Vector %u[IRQ=%u,ISRV=%u]", i, vec->arch.irq,
 							vec->arch.vector);
 	}
 
-	if (!pcie_msi_enable(config->virtio_pci_bdf, config->virtio_msi_vectors,
+	if (!pcie_msi_enable(devdata->virtio_pci_bdf, devdata->virtio_msi_vectors,
 				n_vectors)){
 		LOG_ERR("Unable to enable MSI(-X) for virtio");
 		return -ENXIO;
 	}
 
-	config->virtio_msix_count = n_vectors;
+	devdata->virtio_msix_count = n_vectors;
 
 	virtio_pci_register_msix_intr(dev, VIRTIO_PCI_COMMON_MSIX, 0);
 
 	/* connect all queues requiring an interrupt to vector 1 */
-	for (int i = 0; i < config->virtio_num_queues; i++) {
-		uint16_t idx = config->virtio_queues[i].vqx_no_interrupt ?
+	for (int i = 0; i < devdata->virtio_num_queues; i++) {
+		uint16_t idx = devdata->virtio_queues[i].vqx_no_interrupt ?
 						VIRTIO_PCI_MSIX_NO_INTERRUPT :
 						1;
 
@@ -815,18 +826,18 @@ static int virtio_pci_msix_shared_setup(virtio_device_t *dev, int priority)
 					VIRTIO_PCI_COMMON_Q_MSIX, idx);
 	}
 
-	config->virtio_flags |= VTPCI_FLAG_SHARED_MSIX | VTPCI_FLAG_MSIX;
+	devdata->virtio_flags |= VTPCI_FLAG_SHARED_MSIX | VTPCI_FLAG_MSIX;
 	LOG_INF("Enabled MSI-X shared interrupts");
 	return 0;
 }
 
 #endif /* CONFIG_PCIE_MSI_X */
 
-static int virtio_pci_legacy_intx_setup(virtio_device_t *dev, int priority)
+static int virtio_pci_legacy_intx_setup(device_t dev, int priority)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	unsigned int dev_irq = pcie_alloc_irq(config->virtio_pci_bdf);
+	unsigned int dev_irq = pcie_alloc_irq(devdata->virtio_pci_bdf);
 
 	LOG_DBG("Legacy INTx on IRQ %d", dev_irq);
 
@@ -835,16 +846,16 @@ static int virtio_pci_legacy_intx_setup(virtio_device_t *dev, int priority)
 		return -ENXIO;
 	}
 
-	irq_connect_dynamic(dev_irq, priority, virtio_pci_legacy_intx, config, 0);
+	irq_connect_dynamic(dev_irq, priority, virtio_pci_legacy_intx, devdata, 0);
 	LOG_DBG("Connected IRQ %d to Legacy Virtio Interrupt", dev_irq);
 
 	irq_enable(dev_irq);
 	LOG_DBG("Enabled interrupts for IRQ %d", dev_irq);
 
-	config->virtio_flags |= VTPCI_FLAG_INTX;
+	devdata->virtio_flags |= VTPCI_FLAG_INTX;
 	LOG_INF("Enabled legacy virtio interrupts");
 
-	if (virtio_pci_map_modern_resource(dev, &config->virtio_isr)) {
+	if (virtio_pci_map_modern_resource(dev, &devdata->virtio_isr)) {
 		LOG_ERR("Unable to map ISR modern resource");
 	} else {
 		LOG_DBG("Mapped virtio ISR resource");
@@ -853,22 +864,22 @@ static int virtio_pci_legacy_intx_setup(virtio_device_t *dev, int priority)
 	return 0;
 }
 
-static void virtio_pci_enable_virtqueues(virtio_device_t *dev)
+static void virtio_pci_enable_virtqueues(device_t dev)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
-	for (int idx = 0; idx < config->virtio_num_queues; ++idx) {
+	for (int idx = 0; idx < devdata->virtio_num_queues; ++idx) {
 		virtio_pci_select_virtqueue(dev, idx);
 		virtio_pci_write(dev, VIRTIO_PCI_COMMON_Q_ENABLE, 1, 2);
 	}
 }
 
-int virtio_pci_setup_interrupts(virtio_device_t *dev, int priority, int method)
+int virtio_pci_setup_interrupts(device_t dev, int priority, int method)
 {
 	int error = 0;
 	uint32_t key = irq_lock();
 
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 #if defined(CONFIG_PCIE_MSI_X) && defined(CONFIG_PCIE_MSI_MULTI_VECTOR)
 	if (method == VIRTIO_PCI_MSIX_PERVQ) {
@@ -889,7 +900,7 @@ int virtio_pci_setup_interrupts(virtio_device_t *dev, int priority, int method)
 		goto fail;
 	}
 
-	if (config->virtio_pci_modern) {
+	if (devdata->virtio_pci_modern) {
 		LOG_DBG("Enabling all virtqueues");
 		virtio_pci_enable_virtqueues(dev);
 	}
@@ -900,10 +911,11 @@ fail:
 }
 
 /* Device config utilities */
-static int virtio_pci_legacy_read_config(virtio_device_t *dev, uint32_t offset,
+static int virtio_pci_legacy_read_config(device_t dev, uint32_t offset,
 						void *out, size_t width)
 {
-	bool has_msix = (dev->data.virtio_flags & VTPCI_FLAG_MSIX) != 0;
+	virtio_dev_data_t *devdata = dev->data;
+	bool has_msix = (devdata->virtio_flags & VTPCI_FLAG_MSIX) != 0;
 
 	offset += has_msix ? 24 : 20;
 
@@ -931,13 +943,14 @@ static int virtio_pci_legacy_read_config(virtio_device_t *dev, uint32_t offset,
 	return 0;
 }
 
-static uint64_t virtio_pci_modern_device_read_64(virtio_device_t *dev,
+static uint64_t virtio_pci_modern_device_read_64(device_t dev,
 							uint32_t offset)
 {
 	int gen;
 	uint32_t val0, val1;
+	virtio_dev_data_t *devdata = dev->data;
 
-	virtio_modern_resource_t *device_res = &dev->data.virtio_device_conf;
+	virtio_modern_resource_t *device_res = &devdata->virtio_device_conf;
 
 	do {
 		gen = virtio_pci_read(dev, VIRTIO_PCI_COMMON_CFGGENERATION, 1);
@@ -948,10 +961,11 @@ static uint64_t virtio_pci_modern_device_read_64(virtio_device_t *dev,
 	return (((uint64_t) val1 << 32) | val0);
 }
 
-static int virtio_pci_modern_read_config(virtio_device_t *dev, uint32_t off,
+static int virtio_pci_modern_read_config(device_t dev, uint32_t off,
 						void *out, size_t width)
 {
-	virtio_modern_resource_t *device_res = &dev->data.virtio_device_conf;
+	virtio_dev_data_t *devdata = dev->data;
+	virtio_modern_resource_t *device_res = &devdata->virtio_device_conf;
 
 	if (virtio_pci_map_modern_resource(dev, device_res)) {
 		LOG_ERR("Unable to map device config modern resource");
@@ -983,20 +997,23 @@ static int virtio_pci_modern_read_config(virtio_device_t *dev, uint32_t off,
 	return 0;
 }
 
-int virtio_pci_read_config(virtio_device_t *dev, uint32_t offset,
+int virtio_pci_read_config(device_t dev, uint32_t offset,
 				void *out, size_t width)
 {
-	if (dev->data.virtio_pci_modern) {
+	virtio_dev_data_t *devdata = dev->data;
+
+	if (devdata->virtio_pci_modern) {
 		return virtio_pci_modern_read_config(dev, offset, out, width);
 	} else {
 		return virtio_pci_legacy_read_config(dev, offset, out, width);
 	}
 }
 
-static int virtio_pci_legacy_write_config(virtio_device_t *dev, uint32_t offset,
+static int virtio_pci_legacy_write_config(device_t dev, uint32_t offset,
 						void *out, size_t width)
 {
-	bool has_msix = (dev->data.virtio_flags & VTPCI_FLAG_MSIX) != 0;
+	virtio_dev_data_t *devdata = dev->data;
+	bool has_msix = (devdata->virtio_flags & VTPCI_FLAG_MSIX) != 0;
 
 	offset += has_msix ? 24 : 20;
 
@@ -1022,10 +1039,11 @@ static int virtio_pci_legacy_write_config(virtio_device_t *dev, uint32_t offset,
 	return 0;
 }
 
-static int virtio_pci_modern_write_config(virtio_device_t *dev, uint32_t off,
+static int virtio_pci_modern_write_config(device_t dev, uint32_t off,
 						void *out, size_t width)
 {
-	virtio_modern_resource_t *device_res = &dev->data.virtio_device_conf;
+	virtio_dev_data_t *devdata = dev->data;
+	virtio_modern_resource_t *device_res = &devdata->virtio_device_conf;
 
 	if (virtio_pci_map_modern_resource(dev, device_res)) {
 		LOG_ERR("Unable to map device config modern resource");
@@ -1064,10 +1082,11 @@ static int virtio_pci_modern_write_config(virtio_device_t *dev, uint32_t off,
 	return 0;
 }
 
-int virtio_pci_write_config(virtio_device_t *dev, uint32_t offset,
+int virtio_pci_write_config(device_t dev, uint32_t offset,
 				void *out, size_t width)
 {
-	if (dev->data.virtio_pci_modern) {
+	virtio_dev_data_t *devdata = dev->data;
+	if (devdata->virtio_pci_modern) {
 		return virtio_pci_modern_write_config(dev, offset, out, width);
 	} else {
 		return virtio_pci_legacy_write_config(dev, offset, out, width);
@@ -1076,10 +1095,10 @@ int virtio_pci_write_config(virtio_device_t *dev, uint32_t offset,
 
 /* PCI virtio device setup functions */
 
-static int virtio_pci_enumerate_caps(virtio_device_t *dev,
+static int virtio_pci_enumerate_caps(device_t dev,
 					pcie_bdf_t pci_device)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	uint32_t header_offset;
 
@@ -1106,7 +1125,7 @@ static int virtio_pci_enumerate_caps(virtio_device_t *dev,
 		LOG_DBG("Found cap type: %d\n", cap_type);
 		if (cap_type == VIRTIO_PCI_SPECIFIC_VENDOR_CAP) {
 
-			if (!config->virtio_pci_modern) {
+			if (!devdata->virtio_pci_modern) {
 				LOG_WRN("PCI device 0x%x has caps but is legacy",
 						pci_device);
 				goto next_offset;
@@ -1120,22 +1139,22 @@ static int virtio_pci_enumerate_caps(virtio_device_t *dev,
 
 			switch (cfg_type) {
 			case VIRTIO_PCI_CAP_COMMON_CFG:
-				res = &config->virtio_common;
+				res = &devdata->virtio_common;
 
 				cfgs |= 1 << (cfg_type - 1);
 				break;
 			case VIRTIO_PCI_CAP_NOTIFY_CFG:
-				res = &config->virtio_notify;
+				res = &devdata->virtio_notify;
 
 				cfgs |= 1 << (cfg_type - 1);
 				break;
 			case VIRTIO_PCI_CAP_DEVICE_CFG:
-				res = &config->virtio_device_conf;
+				res = &devdata->virtio_device_conf;
 
 				cfgs |= 1 << (cfg_type - 1);
 				break;
 			case VIRTIO_PCI_CAP_ISR_CFG:
-				res = &config->virtio_isr;
+				res = &devdata->virtio_isr;
 
 				cfgs |= 1 << (cfg_type - 1);
 				break;
@@ -1164,7 +1183,7 @@ static int virtio_pci_enumerate_caps(virtio_device_t *dev,
 				uint32_t off = virtio_pci_read_conf(pci_device,
 								offset+16, 4);
 
-				config->virtio_notify_offset_mult = off;
+				devdata->virtio_notify_offset_mult = off;
 			}
 		} else if (cap_type == VIRTIO_PCI_CAP_MSI) {
 			has_msi = true;
@@ -1173,7 +1192,7 @@ static int virtio_pci_enumerate_caps(virtio_device_t *dev,
 		else if (cap_type == VIRTIO_PCI_CAP_MSIX) {
 			uint16_t count = virtio_pci_read_conf(pci_device,
 								offset+2, 4);
-			config->virtio_msix_count = (count & 0x3FF) + 1;
+			devdata->virtio_msix_count = (count & 0x3FF) + 1;
 			has_msix = true;
 		}
 #endif /* CONFIG_PCIE_MSI_X */
@@ -1181,39 +1200,39 @@ next_offset:
 		offset = virtio_pci_read_conf(pci_device, offset+1, 1);
 	}
 
-	if (config->virtio_pci_modern && cfgs != 15) {
+	if (devdata->virtio_pci_modern && cfgs != 15) {
 		LOG_ERR("CFGS is %d\n", cfgs);
 		return -ENXIO;
 	}
 
 	if (!has_msi) {
 		LOG_DBG("Virtio has no MSI support");
-		config->virtio_flags |= VTPCI_FLAG_NO_MSI;
+		devdata->virtio_flags |= VTPCI_FLAG_NO_MSI;
 	}
 
 	if (!has_msix) {
 		LOG_DBG("Virtio has no MSI-X support");
-		config->virtio_flags |= VTPCI_FLAG_NO_MSIX;
+		devdata->virtio_flags |= VTPCI_FLAG_NO_MSIX;
 	}
 
 	LOG_INF("Enumerated virtio capabilities");
 	return 0;
 }
 
-static void virtio_pci_reset(virtio_device_t *dev)
+static void virtio_pci_reset(device_t dev)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 
 	virtio_pci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
 	while (virtio_pci_get_status(dev) != VIRTIO_CONFIG_STATUS_RESET
-		&& config->virtio_pci_modern){
+		&& devdata->virtio_pci_modern){
 		k_cpu_idle();
 	}
 }
 
-static int virtio_pci_pre_init(virtio_device_t *dev, pcie_bdf_t pci_device)
+static int virtio_pci_pre_init(device_t dev, pcie_bdf_t pci_device)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 	uint32_t conf_data = virtio_pci_read_conf(pci_device, PCIE_CONF_ID, 4);
 
 	if (PCIE_ID_TO_VEND(conf_data) != VIRTIO_PCI_VENDORID) {
@@ -1223,27 +1242,27 @@ static int virtio_pci_pre_init(virtio_device_t *dev, pcie_bdf_t pci_device)
 
 	uint32_t device_id = PCIE_ID_TO_DEV(conf_data);
 
-	config->virtio_dev_type = VIRTIO_PCI_DEVICE;
-	config->virtio_pci_modern = device_id >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
-	config->virtio_pci_bdf = pci_device;
+	devdata->virtio_bus_type = VIRTIO_PCI_DEVICE;
+	devdata->virtio_pci_modern = device_id >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
+	devdata->virtio_pci_bdf = pci_device;
 
-	config->virtio_flags = 0;
-	config->virtio_num_queues = 0;
+	devdata->virtio_flags = 0;
+	devdata->virtio_num_queues = 0;
 
-	if (config->virtio_pci_modern) {
-		config->virtio_dev_type = device_id -
+	if (devdata->virtio_pci_modern) {
+		devdata->virtio_dev_type = device_id -
 						VIRTIO_PCI_DEVICEID_MODERN_MIN;
-		config->virtio_flags |= VTPCI_FLAG_MODERN;
+		devdata->virtio_flags |= VTPCI_FLAG_MODERN;
 	} else {
-		config->virtio_dev_type = device_id - VIRTIO_PCI_DEVICEID_MIN + 1;
+		devdata->virtio_dev_type = device_id - VIRTIO_PCI_DEVICEID_MIN + 1;
 	}
 
 	return 0;
 }
 
-static int virtio_pci_init_config(virtio_device_t *dev, pcie_bdf_t pci_device)
+static int virtio_pci_init_config(device_t dev, pcie_bdf_t pci_device)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 	uint16_t status = virtio_pci_read_conf(pci_device, 0x6, 2);
 	int error = 0;
 
@@ -1254,7 +1273,7 @@ static int virtio_pci_init_config(virtio_device_t *dev, pcie_bdf_t pci_device)
 	/* if there is a modern virtio device without cap lists
 	 *  this is a problem
 	 */
-	else if (config->virtio_pci_modern) {
+	else if (devdata->virtio_pci_modern) {
 		uint32_t conf_data = virtio_pci_read_conf(pci_device, PCIE_CONF_ID, 4);
 
 		LOG_ERR("Modern virtio device PCIE device: %d.%x.%d ID: %x:%x"
@@ -1266,20 +1285,20 @@ static int virtio_pci_init_config(virtio_device_t *dev, pcie_bdf_t pci_device)
 
 		error = -ENXIO;
 	} else {
-		config->virtio_flags |= VTPCI_FLAG_NO_MSIX;
-		config->virtio_flags |= VTPCI_FLAG_NO_MSI;
+		devdata->virtio_flags |= VTPCI_FLAG_NO_MSIX;
+		devdata->virtio_flags |= VTPCI_FLAG_NO_MSI;
 	}
 
 	return error;
 }
 
-static int virtio_pci_init_io(virtio_device_t *dev, pcie_bdf_t pci_device)
+static int virtio_pci_init_io(device_t dev, pcie_bdf_t pci_device)
 {
-	virtio_config_t *config = &dev->data;
+	virtio_dev_data_t *devdata = dev->data;
 	uint8_t bar_to_map;
 
-	if (config->virtio_pci_modern) {
-		bar_to_map = config->virtio_common.bar;
+	if (devdata->virtio_pci_modern) {
+		bar_to_map = devdata->virtio_common.bar;
 	} else {
 		bar_to_map = 0;
 	}
@@ -1292,8 +1311,8 @@ static int virtio_pci_init_io(virtio_device_t *dev, pcie_bdf_t pci_device)
 		PCIE_CONF_BAR_IO(bar_config) ? "IO" : "MMIO");
 
 	if (PCIE_CONF_BAR_IO(bar_config)) {
-		config->virtio_io_res = bar_addr;
-		config->virtio_io_res_type = VIRTIO_IO;
+		devdata->virtio_io_res = bar_addr;
+		devdata->virtio_io_res_type = VIRTIO_IO;
 	} else {
 		struct pcie_mbar bar;
 
@@ -1301,16 +1320,16 @@ static int virtio_pci_init_io(virtio_device_t *dev, pcie_bdf_t pci_device)
 			return -ENODEV;
 		}
 
-		device_map(&config->virtio_io_res, bar.phys_addr, bar.size,
+		device_map(&devdata->virtio_io_res, bar.phys_addr, bar.size,
 				K_MEM_CACHE_NONE);
-		config->virtio_io_res_type = VIRTIO_MMIO;
+		devdata->virtio_io_res_type = VIRTIO_MMIO;
 	}
 
 	return 0;
 }
 
 static virtio_bus_api_t virtio_pci_bus_api = {
-		.negotiate_feature = virtio_pci_neogitate_feature,
+		.negotiate_feature = virtio_pci_negotiate_feature,
 		.with_feature = virtio_pci_with_feature,
 		.alloc_virtqueues = virtio_pci_alloc_virtqueues,
 		.setup_interrupts = virtio_pci_setup_interrupts,
@@ -1323,12 +1342,12 @@ static virtio_bus_api_t virtio_pci_bus_api = {
 		.config_change = NULL
 };
 
-int virtio_pci_init(virtio_device_t *dev, pcie_bdf_t pci_device)
+int virtio_pci_init(device_t dev, pcie_bdf_t pci_device)
 {
-	dev->api = &virtio_pci_bus_api;
-	dev->data.virtio_bus_type = VIRTIO_PCI_DEVICE;
+	virtio_dev_data_t *devdata = dev->data;
 
-	memset(&dev->data, 0, sizeof(virtio_config_t));
+	devdata->virtio_bus_type = VIRTIO_PCI_DEVICE;
+	
 	int error = virtio_pci_pre_init(dev, pci_device);
 
 	LOG_DBG("Finished pre-initialization of virtio device");
@@ -1340,6 +1359,8 @@ int virtio_pci_init(virtio_device_t *dev, pcie_bdf_t pci_device)
 	if (error) {
 		return error;
 	}
+
+	dev->api = &virtio_pci_bus_api;
 
 	error = virtio_pci_init_io(dev, pci_device);
 	if (error) {

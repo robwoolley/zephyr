@@ -36,11 +36,11 @@
 #include <drivers/virtio/pcie/virtio_pci_legacy_var.h>
 #include <drivers/virtio/pcie/virtio_pci_modern_var.h>
 #include <drivers/virtio/pcie/utils.h>
-#include <drivers/virtio/virtio.h>
+#include <drivers/virtio/virtio_zephyr.h>
 
-struct __virtio_config__;
+struct __virtio_data__;
 
-typedef struct __virtio_config__ virtio_config_t;
+typedef struct __virtio_data__ virtio_data_t;
 
 struct vq_alloc_info;
 struct virtqueue;
@@ -67,22 +67,22 @@ typedef struct __virtio_pci_interrupt__ {
 
 
 /* common functions */
-bool virtio_pci_with_feature(virtio_device_t *dev, uint64_t features);
-int virtio_pci_neogitate_feature(virtio_device_t *dev, uint64_t features);
-int virtio_pci_alloc_virtqueues(virtio_device_t *dev, int flags, int nvqs,
+bool virtio_pci_with_feature(device_t dev, uint64_t features);
+int virtio_pci_negotiate_feature(device_t dev, uint64_t features);
+int virtio_pci_alloc_virtqueues(device_t dev, int flags, int nvqs,
 					struct vq_alloc_info *info);
-int virtio_pci_setup_interrupts(virtio_device_t *dev, int priority, int method);
-void virtio_pci_notify_virtqueue(virtio_device_t *dev, uint16_t queue,
+int virtio_pci_setup_interrupts(device_t dev, int priority, int method);
+void virtio_pci_notify_virtqueue(device_t dev, uint16_t queue,
 					unsigned long bus_offset);
-int virtio_pci_read_config(virtio_device_t *dev, uint32_t offset, void *dat,
+int virtio_pci_read_config(device_t dev, uint32_t offset, void *dat,
 				size_t len);
-int virtio_pci_write_config(virtio_device_t *dev, uint32_t offset, void *dat,
+int virtio_pci_write_config(device_t dev, uint32_t offset, void *dat,
 				size_t len);
 
 /* TODO: Finish implementing the following functions */
-void virtio_pci_stop(virtio_device_t *dev);
-int virtio_pci_reinit(virtio_device_t *dev, uint64_t features);
-void virtio_pci_reinit_complete(virtio_device_t *dev);
+void virtio_pci_stop(device_t dev);
+int virtio_pci_reinit(device_t dev, uint64_t features);
+void virtio_pci_reinit_complete(device_t dev);
 
 struct vtpci_virtqueue {
 	struct virtqueue    *vqx_vq;
@@ -107,5 +107,5 @@ virtio_pci_gen_t *virtio_pci_generator_next(virtio_pci_gen_t *gen);
 	while ((_gen_name_p = virtio_pci_generator_next(_gen_name_p)))
 
 
-int virtio_pci_init(virtio_device_t *dev, pcie_bdf_t pci_device);
-void virtio_test_interrupt(virtio_device_t *dev, uint16_t vector);
+int virtio_pci_init(device_t dev, pcie_bdf_t pci_device);
+void virtio_test_interrupt(device_t dev, uint16_t vector);

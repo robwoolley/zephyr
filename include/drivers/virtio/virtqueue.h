@@ -37,7 +37,7 @@
 #include <drivers/virtio/types.h>
 #include <drivers/virtio/sglist.h>
 #include <drivers/virtio/virtio_ring.h>
-#include <drivers/virtio/virtio.h>
+#include <drivers/virtio/virtio_zephyr.h>
 
 struct virtqueue;
 
@@ -50,8 +50,7 @@ typedef mem_addr_t vm_paddr_t;
 
 /* Device callback for a virtqueue interrupt. */
 typedef void virtqueue_intr_t(void *);
-struct __virtio_device__;
-typedef struct __virtio_device__ virtio_device_t;
+typedef struct device *device_t;
 
 typedef struct vq_desc_extra vq_desc_extra_t;
 #define virtqueue_modern(virtqueue) (((virtqueue)->flags & VIRTQUEUE_MODERN) != 0)
@@ -87,7 +86,7 @@ struct vq_alloc_info {
 	(_i)->vqai_vq = (_vqp);						\
 } while (0)
 
-int	 virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
+int	 virtqueue_alloc(device_t dev, uint16_t queue, uint16_t size,
 	     bus_size_t notify_offset, int align, vm_paddr_t highaddr,
 	     struct vq_alloc_info *info, struct virtqueue **vqp);
 void	*virtqueue_drain(struct virtqueue *vq, int *last);

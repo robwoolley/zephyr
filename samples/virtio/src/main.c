@@ -3,22 +3,24 @@
 
 #if defined(CONFIG_VIRTIO_PCI) && defined(CONFIG_VIRTIO_RNG)
 
-void virtio_test_rng_device(pcie_bdf_t bdf)
+int virtio_test_rng_device(pcie_bdf_t bdf)
 {
-	int err;
-	virtio_rng_dev_t dev;
+	int err = 1;
+	uint32_t *data = NULL;
+	size_t size = 0;
 
-	err = virtio_rng_init(&dev, VIRTIO_PCI_DEVICE, &bdf);
-	if (err) {
-		printk("Failed to initialize Virtio RNG device(%d)\n", err);
-		return;
+	// virtio_rng_dev_t dev;
+	device_t dev = (device_t) device_get_binding("virtio_rng");
+
+	if (dev == NULL) {
+		printk("Failed to find virtio RNG device\n");
+		goto fail;
 	}
 
-	uint32_t *data = k_malloc(sizeof(uint32_t) * 5);
-	size_t size = sizeof(uint32_t) * 5;
+	data = k_malloc(sizeof(uint32_t) * 5);
+	size = sizeof(uint32_t) * 5;
 
-	err = dev.rng_read(&dev, data, &size);
-
+	err = virtio_rng_read_data(dev, data, &size);
 	if (err) {
 		printk("Failed to read RNG device(%d)\n", err);
 		goto fail;
@@ -35,8 +37,11 @@ void virtio_test_rng_device(pcie_bdf_t bdf)
 		printk("Random Number: 0x%x\n", data[i]);
 	}
 
+	err = 0;
 fail:
-	k_free(data);
+	if (data != NULL)
+		k_free(data);
+	return err;
 }
 
 void main(void)

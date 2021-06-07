@@ -3,3 +3,4 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(zephyr-virtio)
 
 target_sources(app PRIVATE src/main.c)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

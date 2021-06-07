@@ -6,7 +6,7 @@
 
 /* Copyright (c) 2021, Wind River Systems, Inc.*/
 
-#include <drivers/virtio/virtio.h>
+#include <drivers/virtio/virtio_zephyr.h>
 #include <drivers/virtio/pcie/pcie.h>
 #include <drivers/virtio/pcie/utils.h>
 

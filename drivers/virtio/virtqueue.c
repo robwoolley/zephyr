@@ -43,7 +43,7 @@
 LOG_MODULE_DECLARE(virtio, CONFIG_VIRTIO_LOG_LEVEL);
 
 struct virtqueue {
-	virtio_device_t		 vq_dev;
+	device_t		 vq_dev;
 	uint16_t		 vq_queue_index;
 	uint16_t		 vq_nentries;
 	uint32_t		 vq_flags;
@@ -148,7 +148,7 @@ static void	vq_ring_free_chain(struct virtqueue *, uint16_t);
 struct k_heap VRING_MEM;
 static uint8_t *VRING_MEM_BASE;
 int
-virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
+virtqueue_alloc(device_t dev, uint16_t queue, uint16_t size,
     bus_size_t notify_offset, int align, vm_paddr_t highaddr,
     struct vq_alloc_info *info, struct virtqueue **vqp)
 {
@@ -158,7 +158,7 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 	*vqp = NULL;
 	error = 0;
 
-	virtio_bus_api_t *api = (virtio_bus_api_t *)dev.api;
+	virtio_bus_api_t *api = (virtio_bus_api_t *)dev->api;
 
 	/* If the device is x86 based with an MMU map the physical address
 	 * otherwise just use the physical address
@@ -202,9 +202,9 @@ virtqueue_alloc(virtio_device_t dev, uint16_t queue, uint16_t size,
 	vq->vq_intrhand = info->vqai_intr;
 	vq->vq_intrhand_arg = info->vqai_intr_arg;
 
-	if (api->with_feature(&dev, VIRTIO_F_VERSION_1))
+	if (api->with_feature(dev, VIRTIO_F_VERSION_1))
 		vq->vq_flags |= VIRTQUEUE_FLAG_MODERN;
-	if (api->with_feature(&dev, VIRTIO_RING_F_EVENT_IDX))
+	if (api->with_feature(dev, VIRTIO_RING_F_EVENT_IDX))
 		vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
 	if (info->vqai_maxindirsz > 1) {
@@ -239,15 +239,15 @@ fail:
 static int
 virtqueue_init_indirect(struct virtqueue *vq, int indirect_size)
 {
-	virtio_device_t dev;
+	device_t dev;
 	struct vq_desc_extra *dxp;
 	virtio_bus_api_t *api;
 	int i, size;
 
 	dev = vq->vq_dev;
-	api = (virtio_bus_api_t *)dev.api;
+	api = (virtio_bus_api_t *)dev->api;
 
-	if (!(api->with_feature(&dev, VIRTIO_RING_F_INDIRECT_DESC))) {
+	if (!(api->with_feature(dev, VIRTIO_RING_F_INDIRECT_DESC))) {
 		LOG_WRN("Virtqueue %d (%s) requested indirect descriptor but "
 			"not negotiated", vq->vq_queue_index, vq->vq_name);
 		return (0);
@@ -883,10 +883,10 @@ vq_ring_must_notify_host(struct virtqueue *vq)
 static void
 vq_ring_notify_host(struct virtqueue *vq)
 {
-	virtio_bus_api_t *api = (virtio_bus_api_t *)vq->vq_dev.api;
+	virtio_bus_api_t *api = (virtio_bus_api_t *)vq->vq_dev->api;
 
 	api->notify_virtqueue(
-		&vq->vq_dev, vq->vq_queue_index, vq->vq_notify_offset
+		vq->vq_dev, vq->vq_queue_index, vq->vq_notify_offset
 	);
 }
 
